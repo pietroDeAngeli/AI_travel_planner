@@ -1,46 +1,74 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, List
+from data import UserInformation
 
-REQUIRED_SLOTS = ["destination", "dates", "budget", "duration", "travel_style"]
 
 @dataclass
 class DialogueState:
-    slots: Dict[str, Any] = field(default_factory=lambda: {k: None for k in REQUIRED_SLOTS})
-    plan: Optional[Dict[str, Any]] = None
-    missing_slots: List[str] = field(default_factory=list)
+    info: UserInformation = field(default_factory=UserInformation)
+    current_intent: Optional[str] = None
+    confirmed = False
+    current_state = None
+    slot_to_change: Optional[str] = None
+    task_intent: Optional[str] = None
 
-def update_state_with_slots(state: DialogueState, new_slots: Dict[str, Any]) -> None:
-    for k, v in new_slots.items():
-        if v is not None and k in state.slots:
-            state.slots[k] = v
+def update_info(state: DialogueState,intent: str, new_slots: Dict[str, Any]) -> None:
+    if intent in ("START_TRIP","REQUEST_PLAN","TRAVEL_METHOD","ACCOMMODATION_PREFERENCE","MODIFY_PLAN"):
+        state.task_intent = intent
+    state.current_intent = intent
+    state.info.update_info(new_slots)
 
-def compute_missing(state: DialogueState) -> List[str]:
-    return [k for k in REQUIRED_SLOTS if not state.slots.get(k)]
+    missing_slots = state.info.missing_slots(intent)
+    if len(missing_slots) > 0:
+        state.confirmed = False
+
+def update_current_state(new_state: str, state: DialogueState) -> None:
+    state.current_state = new_state
 
 def dm_decide(intent: str, state: DialogueState) -> str:
     """
-    Ritorna una dm_action per NLG:
-      - ASK_CLARIFICATION
-      - ACK_UPDATE
-      - SHOW_PLAN
-      - GOODBYE
+    Return one of DM_ACTIONS
     """
-    state.missing_slots = compute_missing(state)
+
+    missing_slots = state.info.missing_slots(intent)
 
     if intent == "END_DIALOGUE":
         return "GOODBYE"
-
-    if intent in ("START_TRIP", "PROVIDE_INFO", "MODIFY_PLAN"):
-        if state.missing_slots:
-            return "ASK_CLARIFICATION"
+    
+    if intent == "CONFIRM_DETAILS":
+        state.confirmed = True
+        if state.task_intent == "REQUEST_PLAN":
+            return "PLAN_ACTIVITIES"
+        if state.task_intent == "TRAVEL_METHOD":
+            return "PLAN_TRAVEL_METHOD"
+        if state.task_intent == "ACCOMMODATION_PREFERENCE":
+            return "PLAN_ACCOMMODATION"
         return "ACK_UPDATE"
+    
+    if intent == "CHANGE_DETAILS":
+        return "ASK_WHICH_SLOT_TO_CHANGE"
+    
+    if intent == "PROVIDE_CHANGE_VALUE":
+        # User has provided the new value for the pending slot
+        # The slot should already be updated via update_info()
+        # Now acknowledge the change
+        changed_slot = state.slot_to_change
+        state.slot_to_change = None  # Clear the pending slot
+        return "ACK_CHANGED_SLOT"
+    
+    if intent == "REQUEST_PLAN" and state.confirmed:
+        return "PLAN_ACTIVITIES"
+    
+    if intent == "TRAVEL_METHOD" and state.confirmed:
+        return "PLAN_TRAVEL_METHOD"
+    
+    if intent == "ACCOMMODATION_PREFERENCE" and state.confirmed:
+        return "PLAN_ACCOMMODATION"
 
-    if intent == "REQUEST_PLAN":
-        if state.missing_slots:
+    if intent in ("START_TRIP", "MODIFY_PLAN", "REQUEST_PLAN", "TRAVEL_METHOD", "ACCOMMODATION_PREFERENCE"):
+        if len(missing_slots) > 0:
             return "ASK_CLARIFICATION"
-        return "SHOW_PLAN"
-
-    # fallback
-    if state.missing_slots:
-        return "ASK_CLARIFICATION"
-    return "ACK_UPDATE"
+        else: # All slots present but there's no confirmation yet
+            return "ASK_CONFIRMATION"
+    
+    return "ASK_CLARIFICATION"
