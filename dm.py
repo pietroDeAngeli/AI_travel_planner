@@ -13,11 +13,26 @@ class DialogueState:
     task_intent: Optional[str] = None
     plan: Optional[Dict[str, Any]] = None  # Stores activities, accommodations, etc.
 
+    def __str__(self) -> str:
+        return (
+            "DialogueState(\n"
+            f"  current_state   = {self.current_state}\n"
+            f"  current_intent  = {self.current_intent}\n"
+            f"  task_intent     = {self.task_intent}\n"
+            f"  confirmed       = {self.confirmed}\n"
+            f"  slot_to_change  = {self.slot_to_change}\n"
+            f"  user_info       = {self.info}\n"
+            f"  plan            = {self.plan}\n"
+            ")"
+        )
+
 def update_info(state: DialogueState,intent: str, new_slots: Dict[str, Any]) -> None:
     if intent in ("START_TRIP","REQUEST_PLAN","TRAVEL_METHOD","ACCOMMODATION_PREFERENCE","MODIFY_PLAN"):
         state.task_intent = intent
     state.current_intent = intent
     state.info.update_info(new_slots)
+
+    print(state)
 
     missing_slots = state.info.missing_slots(intent)
     if len(missing_slots) > 0:

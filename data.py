@@ -18,6 +18,21 @@ class UserInformation:
     budget_level: Optional[Literal["low", "medium", "high"]] = None
     leaving_time_preference: Optional[str] = None
 
+    def __str__(self) -> str:
+        fields = [
+            f"destination={self.destination}",
+            f"start_date={self.start_date}",
+            f"end_date={self.end_date}",
+            f"num_people={self.num_people}",
+            f"overall_budget={self.overall_budget}",
+            f"travel_style={self.travel_style}",
+            f"travel_method={self.travel_method}",
+            f"accommodation_type={self.accommodation_type}",
+            f"budget_level={self.budget_level}",
+            f"leaving_time_preference={self.leaving_time_preference}",
+        ]
+        return "UserInformation(" + ", ".join(fields) + ")"
+
     def update_info(self, new_info: Dict[str, Any]) -> None:
         for key, value in new_info.items():
             if hasattr(self, key) and value is not None:
