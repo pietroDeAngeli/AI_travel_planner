@@ -11,6 +11,7 @@ class DialogueState:
     current_state = None
     slot_to_change: Optional[str] = None
     task_intent: Optional[str] = None
+    plan: Optional[Dict[str, Any]] = None  # Stores activities, accommodations, etc.
 
 def update_info(state: DialogueState,intent: str, new_slots: Dict[str, Any]) -> None:
     if intent in ("START_TRIP","REQUEST_PLAN","TRAVEL_METHOD","ACCOMMODATION_PREFERENCE","MODIFY_PLAN"):

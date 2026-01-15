@@ -1,5 +1,55 @@
 from typing import Dict, Any, List, Optional
-from schema import SLOTS, INTENTS, INTENT_SLOTS, JSON_SCHEMA_HINT
+from schema import SLOTS, INTENTS, INTENT_SLOTS, JSON_SCHEMA_HINT, SLOT_DESCRIPTIONS
+
+def format_activities(activities: List[Dict[str, Any]], max_items: int = 5) -> str:
+    """Format activities for display to user."""
+    if not activities:
+        return "Unfortunately, I couldn't find activities for this destination at the moment."
+    
+    activities = activities[:max_items]
+    formatted = "Here are some recommended activities:\n"
+    for i, activity in enumerate(activities, 1):
+        name = activity.get("name", "Unknown")
+        rating = activity.get("rating", "N/A")
+        price = activity.get("price", "N/A")
+        currency = activity.get("currency", "")
+        description = activity.get("description", "")
+        
+        formatted += f"{i}. {name}\n"
+        if rating and rating != "None":
+            formatted += f"   Rating: {rating}/5\n"
+        if price and price != "N/A":
+            formatted += f"   Price: {price} {currency}\n"
+        if description:
+            formatted += f"   {description}\n"
+        formatted += "\n"
+    
+    return formatted.strip()
+
+def format_accommodations(accommodations: List[Dict[str, Any]], max_items: int = 5) -> str:
+    """Format accommodations for display to user."""
+    if not accommodations:
+        return "Unfortunately, I couldn't find accommodations for this destination at the moment."
+    
+    accommodations = accommodations[:max_items]
+    formatted = "Here are some recommended accommodations:\n"
+    for i, hotel in enumerate(accommodations, 1):
+        name = hotel.get("name", "Unknown")
+        price = hotel.get("price", "N/A")
+        currency = hotel.get("currency", "")
+        description = hotel.get("description", "")
+        board_type = hotel.get("boardType", "")
+        
+        formatted += f"{i}. {name}\n"
+        if price and price != "N/A":
+            formatted += f"   Price per night: {price} {currency}\n"
+        if board_type:
+            formatted += f"   Board type: {board_type}\n"
+        if description:
+            formatted += f"   {description}\n"
+        formatted += "\n"
+    
+    return formatted.strip()
 
 def nlg_respond(pipe, dm_action: str, state: Dict[str, Any], user_utterance: str) -> str:
     """
@@ -26,20 +76,7 @@ def nlg_respond(pipe, dm_action: str, state: Dict[str, Any], user_utterance: str
 
         target = missing[0] if missing else "unknown_slot"
         # Create a prompt that asks the LLM to request the missing slot from the user
-        slot_descriptions = {
-            "destination": "the destination city",
-            "start_date": "the start date",
-            "end_date": "the end date",
-            "num_people": "the number of people traveling",
-            "overall_budget": "the overall budget",
-            "travel_style": "the travel style preference",
-            "travel_method": "the preferred travel method",
-            "accommodation_type": "the accommodation type preference",
-            "budget_level": "the budget level for the plan",
-            "leaving_time_preference": "the preferred leaving time"
-        }
-        
-        target_description = slot_descriptions.get(target, target)
+        target_description = SLOT_DESCRIPTIONS.get(target, target)
         user = (
             f"The user said: '{user_utterance}'\n\n"
             f"Current trip details: {slots}\n\n"
@@ -64,19 +101,6 @@ def nlg_respond(pipe, dm_action: str, state: Dict[str, Any], user_utterance: str
         )
     
     if dm_action == "ASK_WHICH_SLOT_TO_CHANGE":
-        slot_descriptions = {
-            "destination": "the destination city",
-            "start_date": "the start date",
-            "end_date": "the end date",
-            "num_people": "the number of people traveling",
-            "overall_budget": "the overall budget",
-            "travel_style": "the travel style preference",
-            "travel_method": "the preferred travel method",
-            "accommodation_type": "the accommodation type preference",
-            "budget_level": "the budget level for the plan",
-            "leaving_time_preference": "the preferred leaving time"
-        }
-        
         # List all currently set slots
         set_slots = {k: v for k, v in slots.items() if v is not None}
         slots_list = ", ".join([f"{slot} ({val})" for slot, val in set_slots.items()])
@@ -102,21 +126,22 @@ def nlg_respond(pipe, dm_action: str, state: Dict[str, Any], user_utterance: str
     # This happens when NLU detects PROVIDE_CHANGE_VALUE with a specific slot
     slot_to_change = state.get("slot_to_change")
     if slot_to_change:
-        slot_descriptions = {
-            "destination": "the destination city",
-            "start_date": "the start date",
-            "end_date": "the end date",
-            "num_people": "the number of people traveling",
-            "overall_budget": "the overall budget",
-            "travel_style": "the travel style preference",
-            "travel_method": "the preferred travel method",
-            "accommodation_type": "the accommodation type preference",
-            "budget_level": "the budget level for the plan",
-            "leaving_time_preference": "the preferred leaving time"
-        }
-        slot_desc = slot_descriptions.get(slot_to_change, slot_to_change)
+        slot_desc = SLOT_DESCRIPTIONS.get(slot_to_change, slot_to_change)
         return f"What would you like to change your {slot_desc} to?"
 
+    if dm_action == "PLAN_ACTIVITIES":
+        plan = state.get("plan", {})
+        activities = plan.get("activities", [])
+        return format_activities(activities)
+    
+    if dm_action == "PLAN_TRAVEL_METHOD":
+        return "Travel method planning is coming soon! For now, please specify your preferred travel method (flight, train, car, bus)."
+    
+    if dm_action == "PLAN_ACCOMMODATION":
+        plan = state.get("plan", {})
+        accommodations = plan.get("accommodations", [])
+        return format_accommodations(accommodations)
+    
     if dm_action == "GOODBYE":
         return "Perfect! have a nice trip! ✈️"
 
