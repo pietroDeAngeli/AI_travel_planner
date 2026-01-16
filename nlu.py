@@ -59,6 +59,34 @@ def _get_last_assistant(dialogue_history: Optional[List[Dict[str, str]]]) -> str
             return t.get("content", "")
     return ""
 
+def _assistant_asked_for_confirmation(last_assistant: str) -> bool:
+    la = (last_assistant or "").strip().lower()
+    if not la:
+        return False
+
+    # segnali forti di "confirmation question"
+    patterns = [
+        r"\bdo you confirm\b",
+        r"\bcan you confirm\b",
+        r"\bis that correct\b",
+        r"\bis this correct\b",
+        r"\bdoes that look right\b",
+        r"\bis that right\b",
+        r"\bplease confirm\b",
+        r"\bconfirm the details\b",
+        r"\bwould you like to modify anything\b",
+        r"\bor would you like to modify anything\b",
+    ]
+
+    if any(re.search(p, la) for p in patterns):
+        return True
+
+    # fallback: se è una domanda e contiene parole tipiche di conferma
+    if "?" in la and re.search(r"\b(confirm|correct|right|modify)\b", la):
+        return True
+
+    return False
+
 
 def _quick_intent_override(user_utterance: str, last_assistant: str, current_intent=None) -> Optional[str]:
     """
@@ -80,7 +108,8 @@ def _quick_intent_override(user_utterance: str, last_assistant: str, current_int
         return "GREETING"
     
     # Yes/Confirm
-    if current_intent == "CONFIRM_DETAILS" and re.search(r"\b(yes|yeah|yep|correct|right|ok|sure|absolutely|of course)\b", u):
+    if re.search(r"\b(yes|yeah|yep|correct|right|ok|okay|sure|absolutely|of course|no|nope|nah)\b", u):
+        if _assistant_asked_for_confirmation(la):
             return "CONFIRM_DETAILS"
 
     return None
@@ -103,7 +132,7 @@ def nlu_parse(
 
     last_assistant = _get_last_assistant(dialogue_history)
     forced_intent = _quick_intent_override(user_utterance, last_assistant, current_intent)
-    
+
     if forced_intent:
         allowed_slots = INTENT_SLOTS.get(forced_intent, [])
         return {"intent": forced_intent, "slots": {k: None for k in allowed_slots}}
