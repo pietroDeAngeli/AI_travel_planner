@@ -22,3 +22,5 @@ def make_llm(model_id: str = MODEL_ID):
         #verbose=False,
         trust_remote_code=True,
     )
+
+    return pipe

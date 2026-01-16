@@ -11,12 +11,9 @@ class UserInformation:
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     num_people: Optional[int] = None
-    overall_budget: Optional[float] = None
     travel_style: Optional[str] = None
-    travel_method: Optional[str] = None
     accommodation_type: Optional[str] = None
     budget_level: Optional[Literal["low", "medium", "high"]] = None
-    leaving_time_preference: Optional[str] = None
 
     def __str__(self) -> str:
         fields = [
@@ -24,12 +21,9 @@ class UserInformation:
             f"start_date={self.start_date}",
             f"end_date={self.end_date}",
             f"num_people={self.num_people}",
-            f"overall_budget={self.overall_budget}",
             f"travel_style={self.travel_style}",
-            f"travel_method={self.travel_method}",
             f"accommodation_type={self.accommodation_type}",
             f"budget_level={self.budget_level}",
-            f"leaving_time_preference={self.leaving_time_preference}",
         ]
         return "UserInformation(" + ", ".join(fields) + ")"
 
