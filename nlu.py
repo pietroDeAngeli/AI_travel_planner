@@ -119,7 +119,6 @@ def nlu_parse(
     pipe,
     user_utterance: str,
     dialogue_history: Optional[List[Dict[str, str]]] = None,
-    current_intent: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Return: {intent, slots{...}}
@@ -131,7 +130,7 @@ def nlu_parse(
         history_text = "\n".join([f"{t['role'].upper()}: {t['content']}" for t in last])
 
     last_assistant = _get_last_assistant(dialogue_history)
-    forced_intent = _quick_intent_override(user_utterance, last_assistant, current_intent)
+    forced_intent = _quick_intent_override(user_utterance, last_assistant)
 
     if forced_intent:
         allowed_slots = INTENT_SLOTS.get(forced_intent, [])
