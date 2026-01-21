@@ -3,7 +3,7 @@ from typing import Any, Dict, Optional, List
 from typing import Literal
 
 # data.py
-from schema import INTENT_SLOTS, SLOTS, INTENT_SCHEMAS
+from schema import INTENT_SLOTS, SLOTS
 
 @dataclass
 class UserInformation:
@@ -36,7 +36,7 @@ class UserInformation:
         if intent is None:
             relevant_slots = SLOTS
         else:
-            relevant_slots = INTENT_SCHEMAS.get(intent, {}).get("slots", [])
+            relevant_slots = INTENT_SLOTS.get(intent, [])
 
         return {slot: getattr(self, slot) for slot in relevant_slots}
     
