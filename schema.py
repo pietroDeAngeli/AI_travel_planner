@@ -9,7 +9,7 @@ INTENT_SCHEMAS = {
         "slots": ["option1", "option2", "criteria", "compare_type"]
     },
     "REQUEST_INFORMATION": {
-        "slots": ["destination", "entity_type", "budget_constraints"]
+        "slots": ["destination", "entity_type", "budget_constraint"]
     },
     "CONFIRM_DETAILS": {
         "slots": []
@@ -59,33 +59,42 @@ RULES = (
 
 
 SLOT_DESCRIPTIONS = {
+    # -------- PLAN_TRIP --------
     "destination": "the city or destination the user is referring to",
-    
+
     "start_date": "the starting date of the trip",
     "end_date": "the ending date of the trip",
-    
+
     "num_people": "the number of travelers included in the trip",
-    
+
     "travel_style": "the preferred type of travel experience "
                     "(e.g., culture, walking, relaxation, nightlife)",
-    
+
     "accommodation_type": "the preferred type of accommodation "
-                          "(e.g., hotel, hostel, apartment)",
-    
+                    "(e.g., hotel, hostel, apartment)",
+
     "budget_level": "the overall budget level for the trip "
                     "(e.g., low, medium, high)",
-    
+
+    # -------- REQUEST_INFORMATION --------
     "entity_type": "the type of entity the user is asking information about "
-                   "(e.g., destination, attraction, accommodation, event)",
-    
-    "info_type": "the specific type of information requested "
-                 "(e.g., attractions, museums, events, weather, costs)",
-    
-    "criteria": "the criteria used to compare different options "
-                "(e.g., price, activities, comfort, popularity)",
-    
-    "compare_type": "the type of comparison being requested "
-                    "(e.g., destination, accommodation, activity)",
+                   "(e.g., hotels, flights, activities, events)",
+
+    "budget_constraint": "a budget constraint used to filter or contextualize "
+                    "the requested information",
+
+    # -------- COMPARE_OPTIONS --------
+    "option1": "the first option to be compared "
+               "(e.g., a city, hotel, flight, or activity)",
+
+    "option2": "the second option to be compared "
+               "(e.g., a city, hotel, flight, or activity)",
+
+    "criteria": "the aspect used to compare the options "
+                "(e.g., price, activities, comfort)",
+
+    "compare_type": "the type of items being compared "
+                "(e.g., destination, accommodation, flight, activity)",
 }
 
 
