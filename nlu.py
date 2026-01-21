@@ -64,7 +64,7 @@ def _assistant_asked_for_confirmation(last_assistant: str) -> bool:
     if not la:
         return False
 
-    # segnali forti di "confirmation question"
+    # confirmation request patterns
     patterns = [
         r"\bdo you confirm\b",
         r"\bcan you confirm\b",
@@ -88,7 +88,7 @@ def _assistant_asked_for_confirmation(last_assistant: str) -> bool:
     return False
 
 
-def _quick_intent_override(user_utterance: str, last_assistant: str, current_intent=None) -> Optional[str]:
+def _quick_intent_override(user_utterance: str, last_assistant: str) -> Optional[str]:
     """
     Quick heuristic rules to override intent based on simple patterns.
     :param user_utterance: Description
@@ -165,7 +165,7 @@ def nlu_parse(
         out = pipe(messages, max_new_tokens=256)
     except Exception as e:
         print(f"Error calling pipe: {e}")
-        return {"intent": "FALLBACK", "slots": {k: None for k in SLOTS}}
+        return {"intent": "OOD", "slots": {k: None for k in SLOTS}}
     
     try:
         generated = out[0]["generated_text"]
@@ -175,18 +175,17 @@ def nlu_parse(
             text = str(generated)
     except (IndexError, KeyError, TypeError) as e:
         print(f"Error extracting generated text: {e}")
-        return {"intent": "FALLBACK", "slots": {k: None for k in SLOTS}}
+        return {"intent": "OOD", "slots": {k: None for k in SLOTS}}
 
     print(text)
 
     parsed = extract_json(text)
     if not parsed:
-        return {"intent": "FALLBACK", "slots": {k: None for k in SLOTS}}
+        return {"intent": "OOD", "slots": {k: None for k in SLOTS}}
 
-    intent = parsed.get("intent", "FALLBACK")
+    intent = parsed.get("intent", "OOD")
     if intent not in INTENTS:
-        intent = "FALLBACK"
-
+        intent = "OOD"
     raw_slots = parsed.get("slots", {}) or {}
 
     # keep only allowed slots for the predicted intent
