@@ -72,10 +72,7 @@ def _call_nlu(pipe, user: str, history: List[Dict[str, str]]) -> Dict[str, Any]:
     """
     Compatible with both nlu_parse signatures (with/without current_intent kw).
     """
-    try:
-        return nlu_parse(pipe, user, dialogue_history=history, current_intent=None)
-    except TypeError:
-        return nlu_parse(pipe, user, dialogue_history=history)
+    return nlu_parse(pipe, user, dialogue_history=history)
 
 
 # -------------------------
@@ -85,7 +82,7 @@ def _call_nlu(pipe, user: str, history: List[Dict[str, str]]) -> Dict[str, Any]:
 TEST_DIALOGUES = [
     # ========== GREETING ==========
     {
-        "name": "01_greeting_simple",
+        "name": "01_greeting_hello",
         "history": [],
         "user": "hello",
         "expect_intent": "GREETING",
@@ -93,427 +90,437 @@ TEST_DIALOGUES = [
         "purpose": "Simple greeting"
     },
     {
-        "name": "02_greeting_hey",
-        "history": [{"role": "assistant", "content": "How can I help?"}],
-        "user": "hey there",
+        "name": "02_greeting_hi",
+        "history": [],
+        "user": "hi there",
         "expect_intent": "GREETING",
         "expect_slots": {},
-        "purpose": "Informal greeting"
+        "purpose": "Casual greeting"
+    },
+    {
+        "name": "03_greeting_good_morning",
+        "history": [],
+        "user": "good morning",
+        "expect_intent": "GREETING",
+        "expect_slots": {},
+        "purpose": "Polite greeting"
     },
 
-    # ========== PLAN_TRIP ==========
+    # ========== PLAN_TRIP - Underinformative ==========
     {
-        "name": "03_plan_trip_with_destination",
+        "name": "04_plan_trip_minimal",
         "history": [],
-        "user": "I want to plan a trip to Rome",
+        "user": "I want to plan a trip",
         "expect_intent": "PLAN_TRIP",
-        "expect_slots": {"destination": ["Rome", "Roma"]},
-        "purpose": "PLAN_TRIP with destination"
-    },
-    {
-        "name": "04_plan_trip_full_details",
-        "history": [{"role": "assistant", "content": "Tell me your trip details"}],
-        "user": "Trip to Paris from 2026-03-10 to 2026-03-15 for 2 people",
-        "expect_intent": "PLAN_TRIP",
-        "expect_slots": {
-            "destination": ["Paris"],
-            "start_date": {"re": r"2026.*03.*10|03.*10.*2026"},
-            "end_date": {"re": r"2026.*03.*15|03.*15.*2026"},
-            "num_people": 2
-        },
-        "purpose": "PLAN_TRIP with multiple slots"
+        "expect_slots": {},
+        "purpose": "Underinformative: no details"
     },
     {
         "name": "05_plan_trip_destination_only",
-        "history": [{"role": "assistant", "content": "Where would you like to go?"}],
-        "user": "Barcelona",
-        "expect_intent": "PLAN_TRIP",
-        "expect_slots": {"destination": ["Barcelona"]},
-        "purpose": "Destination-only response with context"
-    },
-    {
-        "name": "06_plan_trip_with_budget_style",
         "history": [],
-        "user": "I want to go to Milan, medium budget, culture style",
+        "user": "I want to go to Paris",
+        "expect_intent": "PLAN_TRIP",
+        "expect_slots": {"destination": "Paris"},
+        "purpose": "Underinformative: only destination"
+    },
+
+    # ========== PLAN_TRIP - Normal ==========
+    {
+        "name": "06_plan_trip_dest_dates",
+        "history": [],
+        "user": "I want to visit Rome from March 10 to March 15",
         "expect_intent": "PLAN_TRIP",
         "expect_slots": {
-            "destination": ["Milan", "Milano"],
-            "budget_level": ["medium"],
+            "destination": "Rome",
+            "start_date": NOT_NONE,
+            "end_date": NOT_NONE
+        },
+        "purpose": "Normal: destination and dates"
+    },
+    {
+        "name": "07_plan_trip_dest_people",
+        "history": [],
+        "user": "Trip to Barcelona for 3 people",
+        "expect_intent": "PLAN_TRIP",
+        "expect_slots": {
+            "destination": "Barcelona",
+            "num_people": 3
+        },
+        "purpose": "Normal: destination and people"
+    },
+
+    # ========== PLAN_TRIP - Overinformative ==========
+    {
+        "name": "08_plan_trip_overinformative_all",
+        "history": [],
+        "user": "I want to plan a trip to London from May 1st to May 10th 2026 for 4 people, we prefer hotels, our budget is medium, and we like cultural activities",
+        "expect_intent": "PLAN_TRIP",
+        "expect_slots": {
+            "destination": "London",
+            "start_date": NOT_NONE,
+            "end_date": NOT_NONE,
+            "num_people": 4,
+            "accommodation_type": "hotel",
+            "budget_level": "medium",
             "travel_style": NOT_NONE
         },
-        "purpose": "PLAN_TRIP with budget and style"
+        "purpose": "Overinformative: all slots at once"
     },
     {
-        "name": "07_plan_trip_accommodation",
-        "history": [{"role": "assistant", "content": "What are your preferences?"}],
-        "user": "I'd like a hotel in Rome",
+        "name": "09_plan_trip_overinformative_verbose",
+        "history": [],
+        "user": "I'm planning a vacation to Berlin next month from June 5 to June 12 with my family of 2 adults and want to stay in an apartment because we need a kitchen",
         "expect_intent": "PLAN_TRIP",
         "expect_slots": {
-            "destination": ["Rome", "Roma"],
-            "accommodation_type": ["hotel"]
+            "destination": "Berlin",
+            "start_date": NOT_NONE,
+            "end_date": NOT_NONE,
+            "num_people": 2,
+            "accommodation_type": "apartment"
         },
-        "purpose": "PLAN_TRIP with accommodation preference"
+        "purpose": "Overinformative: extra context"
+    },
+
+    # ========== PLAN_TRIP - Multi-turn ==========
+    {
+        "name": "10_plan_trip_followup_dest",
+        "history": [
+            {"role": "user", "content": "I want to plan a trip"},
+            {"role": "assistant", "content": "Great! Where would you like to go?"}
+        ],
+        "user": "Milan",
+        "expect_intent": "PLAN_TRIP",
+        "expect_slots": {"destination": "Milan"},
+        "purpose": "Multi-turn: destination after prompt"
     },
     {
-        "name": "08_plan_trip_dates_people",
-        "history": [{"role": "assistant", "content": "When and how many people?"}],
-        "user": "From May 1st to May 5th, 2026, we are 3 people",
+        "name": "11_plan_trip_followup_dates",
+        "history": [
+            {"role": "user", "content": "I want to go to Paris"},
+            {"role": "assistant", "content": "When would you like to travel?"}
+        ],
+        "user": "from April 20 to April 25",
         "expect_intent": "PLAN_TRIP",
         "expect_slots": {
             "start_date": NOT_NONE,
-            "end_date": NOT_NONE,
-            "num_people": 3
+            "end_date": NOT_NONE
         },
-        "purpose": "PLAN_TRIP with dates and num_people"
+        "purpose": "Multi-turn: dates after prompt"
+    },
+    {
+        "name": "12_plan_trip_followup_people",
+        "history": [
+            {"role": "user", "content": "Trip to Rome in May"},
+            {"role": "assistant", "content": "How many people will be traveling?"}
+        ],
+        "user": "just 2 of us",
+        "expect_intent": "PLAN_TRIP",
+        "expect_slots": {"num_people": 2},
+        "purpose": "Multi-turn: people after prompt"
     },
 
-    # ========== COMPARE_OPTIONS ==========
+    # ========== COMPARE_OPTIONS - Underinformative ==========
     {
-        "name": "09_compare_two_cities",
+        "name": "13_compare_minimal",
         "history": [],
-        "user": "Can you compare Rome and Milan?",
+        "user": "compare them",
         "expect_intent": "COMPARE_OPTIONS",
-        "expect_slots": {
-            "city1": ["Rome", "Roma"],
-            "city2": ["Milan", "Milano"]
-        },
-        "purpose": "Compare two cities"
-    },
-    {
-        "name": "10_compare_with_criteria",
-        "history": [],
-        "user": "Compare Paris and London by price",
-        "expect_intent": "COMPARE_OPTIONS",
-        "expect_slots": {
-            "city1": ["Paris"],
-            "city2": ["London"],
-            "criteria": ["price"]
-        },
-        "purpose": "Compare with explicit criteria"
-    },
-    {
-        "name": "11_compare_activities",
-        "history": [{"role": "assistant", "content": "What would you like to know?"}],
-        "user": "Which has more activities, Barcelona or Madrid?",
-        "expect_intent": "COMPARE_OPTIONS",
-        "expect_slots": {
-            "city1": ["Barcelona"],
-            "city2": ["Madrid"],
-            "criteria": NOT_NONE,
-            "compare_type": NOT_NONE
-        },
-        "purpose": "Compare by activities criterion"
+        "expect_slots": {},
+        "purpose": "Underinformative: no options"
     },
 
-    # ========== REQUEST_INFORMATION ==========
+    # ========== COMPARE_OPTIONS - Normal ==========
     {
-        "name": "12_request_info_about_destination",
+        "name": "14_compare_two_cities",
         "history": [],
-        "user": "Tell me about Rome",
-        "expect_intent": "REQUEST_INFORMATION",
+        "user": "Compare Paris and London",
+        "expect_intent": "COMPARE_OPTIONS",
         "expect_slots": {
-            "destination": ["Rome", "Roma"]
+            "option1": "Paris",
+            "option2": "London"
         },
-        "purpose": "Request general information"
+        "purpose": "Normal: two cities"
     },
     {
-        "name": "13_request_info_attractions",
+        "name": "15_compare_with_criteria",
         "history": [],
-        "user": "What attractions are there in Paris?",
-        "expect_intent": "REQUEST_INFORMATION",
+        "user": "Compare Rome and Florence by price",
+        "expect_intent": "COMPARE_OPTIONS",
         "expect_slots": {
-            "destination": ["Paris"],
-            "info_type": NOT_NONE
+            "option1": "Rome",
+            "option2": "Florence",
+            "criteria": "price"
         },
-        "purpose": "Request specific info type"
+        "purpose": "Normal: with criteria"
+    },
+
+    # ========== COMPARE_OPTIONS - Overinformative ==========
+    {
+        "name": "16_compare_overinformative",
+        "history": [],
+        "user": "I need to compare Madrid and Barcelona based on price, activities, and cultural attractions because I'm planning a trip in summer and want to decide which destination offers better value for money",
+        "expect_intent": "COMPARE_OPTIONS",
+        "expect_slots": {
+            "option1": "Madrid",
+            "option2": "Barcelona",
+            "criteria": NOT_NONE
+        },
+        "purpose": "Overinformative: detailed comparison"
+    },
+
+    # ========== COMPARE_OPTIONS - Multi-turn ==========
+    {
+        "name": "17_compare_followup_criteria",
+        "history": [
+            {"role": "user", "content": "Compare Berlin and Munich"},
+            {"role": "assistant", "content": "What criteria would you like to use?"}
+        ],
+        "user": "activities",
+        "expect_intent": "COMPARE_OPTIONS",
+        "expect_slots": {"criteria": "activities"},
+        "purpose": "Multi-turn: criteria after prompt"
+    },
+
+    # ========== REQUEST_INFORMATION - Underinformative ==========
+    {
+        "name": "18_request_info_minimal",
+        "history": [],
+        "user": "tell me about it",
+        "expect_intent": "REQUEST_INFORMATION",
+        "expect_slots": {},
+        "purpose": "Underinformative: no destination"
+    },
+
+    # ========== REQUEST_INFORMATION - Normal ==========
+    {
+        "name": "19_request_info_destination",
+        "history": [],
+        "user": "Tell me about Vienna",
+        "expect_intent": "REQUEST_INFORMATION",
+        "expect_slots": {"destination": "Vienna"},
+        "purpose": "Normal: general information"
     },
     {
-        "name": "14_request_info_museums",
-        "history": [{"role": "assistant", "content": "What information do you need?"}],
-        "user": "Show me museums in Florence",
+        "name": "20_request_info_with_entity",
+        "history": [],
+        "user": "What hotels are available in Prague?",
         "expect_intent": "REQUEST_INFORMATION",
         "expect_slots": {
-            "destination": ["Florence", "Firenze"],
-            "entity_type": NOT_NONE,
-            "info_type": NOT_NONE
+            "destination": "Prague",
+            "entity_type": "hotels"
         },
-        "purpose": "Request museums information"
+        "purpose": "Normal: specific entity type"
     },
     {
-        "name": "15_request_info_events",
+        "name": "21_request_info_activities",
         "history": [],
-        "user": "Are there any events in Berlin?",
+        "user": "Show me activities in Amsterdam",
         "expect_intent": "REQUEST_INFORMATION",
         "expect_slots": {
-            "destination": ["Berlin"],
-            "info_type": ["events", "event"]
+            "destination": "Amsterdam",
+            "entity_type": "activities"
         },
-        "purpose": "Request events information"
+        "purpose": "Normal: activities"
+    },
+
+    # ========== REQUEST_INFORMATION - Overinformative ==========
+    {
+        "name": "22_request_info_overinformative",
+        "history": [],
+        "user": "Could you please tell me everything about Copenhagen including hotels, flights, activities, museums, restaurants, and local events because I'm planning a comprehensive 10-day trip there in summer",
+        "expect_intent": "REQUEST_INFORMATION",
+        "expect_slots": {
+            "destination": "Copenhagen",
+            "entity_type": NOT_NONE
+        },
+        "purpose": "Overinformative: detailed request"
+    },
+
+    # ========== REQUEST_INFORMATION - Multi-turn ==========
+    {
+        "name": "23_request_info_followup_entity",
+        "history": [
+            {"role": "user", "content": "Tell me about Athens"},
+            {"role": "assistant", "content": "What type of information do you need?"}
+        ],
+        "user": "hotels",
+        "expect_intent": "REQUEST_INFORMATION",
+        "expect_slots": {"entity_type": "hotels"},
+        "purpose": "Multi-turn: entity after prompt"
     },
 
     # ========== CONFIRM_DETAILS ==========
     {
-        "name": "16_confirm_yes",
+        "name": "24_confirm_yes",
         "history": [
-            {"role": "assistant", "content": "Rome, May 1-5, 2 people. Is that correct?"}
+            {"role": "assistant", "content": "Paris, May 1-5, 2 people. Is that correct?"}
         ],
         "user": "yes",
         "expect_intent": "CONFIRM_DETAILS",
         "expect_slots": {},
-        "purpose": "Confirmation with 'yes'"
+        "purpose": "Confirmation: yes"
     },
     {
-        "name": "17_confirm_correct",
+        "name": "25_confirm_correct",
         "history": [
             {"role": "assistant", "content": "Do you confirm these details?"}
         ],
         "user": "that's correct",
         "expect_intent": "CONFIRM_DETAILS",
         "expect_slots": {},
-        "purpose": "Confirmation with 'correct'"
+        "purpose": "Confirmation: correct"
     },
     {
-        "name": "18_confirm_no",
+        "name": "26_confirm_no",
         "history": [
             {"role": "assistant", "content": "Is this okay?"}
         ],
         "user": "no",
         "expect_intent": "CONFIRM_DETAILS",
         "expect_slots": {},
-        "purpose": "Rejection in confirmation context"
+        "purpose": "Confirmation: rejection"
+    },
+    {
+        "name": "27_confirm_needs_change",
+        "history": [
+            {"role": "assistant", "content": "Are these details correct?"}
+        ],
+        "user": "not quite, I need to change something",
+        "expect_intent": "CONFIRM_DETAILS",
+        "expect_slots": {},
+        "purpose": "Confirmation: rejection with explanation"
     },
 
     # ========== END_DIALOGUE ==========
     {
-        "name": "19_end_goodbye",
-        "history": [
-            {"role": "assistant", "content": "Anything else?"}
-        ],
+        "name": "28_end_goodbye",
+        "history": [],
+        "user": "goodbye",
+        "expect_intent": "END_DIALOGUE",
+        "expect_slots": {},
+        "purpose": "End: goodbye"
+    },
+    {
+        "name": "29_end_bye",
+        "history": [],
         "user": "bye",
         "expect_intent": "END_DIALOGUE",
         "expect_slots": {},
-        "purpose": "End with 'bye'"
+        "purpose": "End: bye"
     },
     {
-        "name": "20_end_quit",
-        "history": [],
-        "user": "quit",
-        "expect_intent": "END_DIALOGUE",
-        "expect_slots": {},
-        "purpose": "End with 'quit'"
-    },
-    {
-        "name": "21_end_thanks_bye",
+        "name": "30_end_thanks",
         "history": [{"role": "assistant", "content": "Is there anything else?"}],
-        "user": "thanks, goodbye",
+        "user": "no thanks, that's all",
         "expect_intent": "END_DIALOGUE",
         "expect_slots": {},
-        "purpose": "End with thanks and goodbye"
+        "purpose": "End: thanks and closure"
     },
 
-    # ========== OOD ==========
+    # ========== OOD (Out of Domain) ==========
     {
-        "name": "22_fallback_off_topic",
+        "name": "31_ood_weather",
         "history": [],
-        "user": "What's the weather like?",
+        "user": "What's the weather like today?",
         "expect_intent": "OOD",
         "expect_slots": {},
-        "purpose": "Off-topic question"
+        "purpose": "OOD: weather question"
     },
     {
-        "name": "23_fallback_unclear",
-        "history": [{"role": "assistant", "content": "How can I help?"}],
+        "name": "32_ood_unclear",
+        "history": [],
         "user": "maybe",
         "expect_intent": "OOD",
         "expect_slots": {},
-        "purpose": "Unclear single word"
+        "purpose": "OOD: unclear word"
     },
     {
-        "name": "24_fallback_random",
+        "name": "33_ood_random",
         "history": [],
         "user": "I like pizza",
         "expect_intent": "OOD",
         "expect_slots": {},
-        "purpose": "Random non-task statement"
-    },
-
-    # ========== Multi-turn scenarios ==========
-    {
-        "name": "25_plan_trip_incremental_destination",
-        "history": [
-            {"role": "user", "content": "I want to plan a trip"},
-            {"role": "assistant", "content": "Great! Where would you like to go?"}
-        ],
-        "user": "Rome",
-        "expect_intent": "PLAN_TRIP",
-        "expect_slots": {"destination": ["Rome", "Roma"]},
-        "purpose": "Incremental PLAN_TRIP: destination"
+        "purpose": "OOD: random statement"
     },
     {
-        "name": "26_plan_trip_incremental_dates",
-        "history": [
-            {"role": "user", "content": "Rome"},
-            {"role": "assistant", "content": "When would you like to go?"}
-        ],
-        "user": "From March 10 to March 15, 2026",
-        "expect_intent": "PLAN_TRIP",
-        "expect_slots": {
-            "start_date": NOT_NONE,
-            "end_date": NOT_NONE
-        },
-        "purpose": "Incremental PLAN_TRIP: dates"
-    },
-    {
-        "name": "27_compare_incremental_criteria",
-        "history": [
-            {"role": "user", "content": "Compare Rome and Milan"},
-            {"role": "assistant", "content": "What criteria would you like to use?"}
-        ],
-        "user": "price",
-        "expect_intent": "COMPARE_OPTIONS",
-        "expect_slots": {"criteria": ["price"]},
-        "purpose": "Incremental COMPARE_OPTIONS: criteria"
-    },
-    {
-        "name": "28_request_info_incremental_type",
-        "history": [
-            {"role": "user", "content": "Tell me about Paris"},
-            {"role": "assistant", "content": "What type of information do you need?"}
-        ],
-        "user": "museums",
-        "expect_intent": "REQUEST_INFORMATION",
-        "expect_slots": {
-            "info_type": ["museums", "museum"]
-        },
-        "purpose": "Incremental REQUEST_INFORMATION: info_type"
-    },  
-
-    # ========== Edge cases ==========
-    {
-        "name": "29_yes_without_confirm_context",
+        "name": "34_ood_yes_no_context",
         "history": [
             {"role": "assistant", "content": "What would you like to do?"}
         ],
         "user": "yes",
         "expect_intent": "OOD",
         "expect_slots": {},
-        "purpose": "Yes without confirmation question"
-    },
-    {
-        "name": "30_plan_trip_italian",
-        "history": [],
-        "user": "Vorrei organizzare un viaggio a Roma",
-        "expect_intent": "PLAN_TRIP",
-        "expect_slots": {"destination": ["Rome", "Roma"]},
-        "purpose": "Italian language PLAN_TRIP"
+        "purpose": "OOD: yes without confirmation"
     },
 
-    # ========== Overinformative users ==========
+    # ========== Additional Edge Cases ==========
     {
-        "name": "31_overinformative_plan_trip_all",
-        "history": [],
-        "user": "I want to plan a trip to Paris from March 1st to March 10th 2026 for 2 people with a budget of 3000 euros, staying in a hotel with breakfast included",
+        "name": "35_plan_trip_change_destination",
+        "history": [
+            {"role": "user", "content": "I want to go to Paris"},
+            {"role": "assistant", "content": "Great! When would you like to go?"}
+        ],
+        "user": "actually, let's go to Rome instead",
         "expect_intent": "PLAN_TRIP",
-        "expect_slots": {
-            "destination": ["Paris"],
-            "start_date": NOT_NONE,
-            "end_date": NOT_NONE,
-            "num_people": 2,
-            "budget": NOT_NONE,
-            "accommodation_type": ["hotel"]
-        },
-        "purpose": "Overinformative: all PLAN_TRIP details in one utterance"
+        "expect_slots": {"destination": "Rome"},
+        "purpose": "Edge: changing slot value"
     },
     {
-        "name": "32_overinformative_compare_detailed",
+        "name": "36_compare_question_form",
         "history": [],
-        "user": "I need to compare Rome and Florence based on price, activities, and cultural attractions because I'm planning a trip in April and I have a limited budget of 2000 euros",
+        "user": "Which is better, Venice or Florence?",
         "expect_intent": "COMPARE_OPTIONS",
         "expect_slots": {
-            "city1": ["Rome", "Roma"],
-            "city2": ["Florence", "Firenze"],
-            "criteria": NOT_NONE
+            "option1": "Venice",
+            "option2": "Florence"
         },
-        "purpose": "Overinformative: compare with extra context and multiple criteria"
+        "purpose": "Edge: comparison as question"
     },
     {
-        "name": "33_overinformative_request_info_verbose",
+        "name": "37_request_info_events",
         "history": [],
-        "user": "Could you please tell me everything about Barcelona including museums, restaurants, historical sites, nightlife, transportation, and local events happening in summer?",
+        "user": "Are there any events in Dublin?",
         "expect_intent": "REQUEST_INFORMATION",
         "expect_slots": {
-            "destination": ["Barcelona"],
-            "info_type": NOT_NONE
+            "destination": "Dublin",
+            "entity_type": "events"
         },
-        "purpose": "Overinformative: request with many details"
+        "purpose": "Edge: question about events"
     },
     {
-        "name": "34_overinformative_book_activity_specific",
+        "name": "38_plan_trip_budget_accommodation",
         "history": [],
-        "user": "I want to book a guided museum tour in Rome on March 15th at 10 AM for 4 adults and 2 children under 12 years old with English speaking guide and audio equipment",
-        "expect_intent": "BOOK_ACTIVITY",
-        "expect_slots": {
-            "activity_type": NOT_NONE,
-            "destination": ["Rome", "Roma"],
-            "date": NOT_NONE,
-            "num_people": NOT_NONE
-        },
-        "purpose": "Overinformative: book with many specific details"
-    },
-
-    # ========== Underinformative users ==========
-    {
-        "name": "35_underinformative_plan_trip_minimal",
-        "history": [],
-        "user": "plan a trip",
+        "user": "I need a low budget hostel trip to Lisbon",
         "expect_intent": "PLAN_TRIP",
-        "expect_slots": {},
-        "purpose": "Underinformative: PLAN_TRIP without any details"
+        "expect_slots": {
+            "destination": "Lisbon",
+            "budget_level": "low",
+            "accommodation_type": "hostel"
+        },
+        "purpose": "Edge: budget and accommodation"
     },
     {
-        "name": "36_underinformative_compare_vague",
+        "name": "39_plan_trip_travel_style",
         "history": [],
-        "user": "compare them",
+        "user": "I want a relaxing beach vacation in Nice",
+        "expect_intent": "PLAN_TRIP",
+        "expect_slots": {
+            "destination": "Nice",
+            "travel_style": NOT_NONE
+        },
+        "purpose": "Edge: travel style"
+    },
+    {
+        "name": "40_compare_with_type",
+        "history": [],
+        "user": "Compare hotels in Brussels and Bruges",
         "expect_intent": "COMPARE_OPTIONS",
-        "expect_slots": {},
-        "purpose": "Underinformative: compare without specifying what"
-    },
-    {
-        "name": "37_underinformative_request_info_minimal",
-        "history": [{"role": "assistant", "content": "What would you like to know?"}],
-        "user": "tell me about it",
-        "expect_intent": "REQUEST_INFORMATION",
-        "expect_slots": {},
-        "purpose": "Underinformative: request without destination"
-    },
-    {
-        "name": "38_underinformative_book_activity_vague",
-        "history": [],
-        "user": "book something",
-        "expect_intent": "BOOK_ACTIVITY",
-        "expect_slots": {},
-        "purpose": "Underinformative: book without activity type or destination"
-    },
-    {
-        "name": "39_underinformative_single_word",
-        "history": [
-            {"role": "user", "content": "I want to plan a trip"},
-            {"role": "assistant", "content": "Where would you like to go?"}
-        ],
-        "user": "Paris",
-        "expect_intent": "PLAN_TRIP",
-        "expect_slots": {"destination": ["Paris"]},
-        "purpose": "Underinformative: single word response to fill slot"
-    },
-    {
-        "name": "40_underinformative_implicit_confirm",
-        "history": [
-            {"role": "assistant", "content": "Would you like to book a hotel in Rome?"}
-        ],
-        "user": "sure",
-        "expect_intent": "CONFIRM",
-        "expect_slots": {},
-        "purpose": "Underinformative: minimal confirmation"
+        "expect_slots": {
+            "option1": "Brussels",
+            "option2": "Bruges",
+            "compare_type": NOT_NONE
+        },
+        "purpose": "Edge: comparing specific type"
     },
 ]
 
