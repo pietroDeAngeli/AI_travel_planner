@@ -1,18 +1,12 @@
 INTENT_SCHEMAS = {
-    "GREETING": {
-        "slots": []
-    },
     "PLAN_TRIP": {
         "slots": ["destination", "start_date", "end_date", "num_people", "accommodation_type", "travel_style", "budget_level"]
     },
-    "COMPARE_OPTIONS": {
-        "slots": ["option1", "option2", "criteria", "compare_type"]
-    },
     "REQUEST_INFORMATION": {
-        "slots": ["destination", "entity_type", "budget_constraint"]
+        "slots": ["destination", "entity_type", "budget_level"]
     },
-    "CONFIRM_DETAILS": {
-        "slots": []
+    "COMPARE_OPTIONS": {
+        "slots": ["option1", "option2", "criteria"]
     },
     "END_DIALOGUE": {
         "slots": []
@@ -36,23 +30,80 @@ def get_json_schema_hint(intent="PLAN_TRIP"):
 
 JSON_SCHEMA_HINT = get_json_schema_hint()
 
+ACTIVITY_CATEGORIES = {
+
+    "adventure": [
+        "adventure", "hiking", "trekking", "climbing",
+        "kayak", "rafting", "bike", "biking", "cycling",
+        "outdoor", "jeep", "atv", "quad", "safari"
+    ],
+
+    "cultural": [
+        "museum", "gallery", "art", "exhibition",
+        "cathedral", "church", "basilica",
+        "palace", "royal", "historic", "history",
+        "monument", "heritage", "archaeological",
+    ],
+
+    "food": [
+        "food", "wine", "tapas", "gastronomy",
+        "culinary", "tasting", "dinner", "lunch",
+        "market", "cooking", "cooking class"
+    ],
+
+    "sport": [
+        "stadium", "football", "soccer",
+        "basketball", "tennis",
+        "bernabeu", "arena", "olympic"
+    ],
+
+    "relax": [
+        "spa", "wellness", "relax",
+        "thermal", "bath", "cruise",
+        "boat", "river", "panoramic", "sunset"
+    ],
+
+    "nature": [
+        "nature", "park", "garden",
+        "botanical", "natural",
+        "scenic", "landscape",
+        "mountain", "lake"
+    ],
+
+    "nightlife": [
+        "night", "nightlife", "bar", "pub",
+        "club", "show", "concert",
+        "music", "live", "flamenco"
+    ],
+
+    "family": [
+        "family", "kids", "children",
+        "zoo", "aquarium",
+        "theme park", "amusement", "park"
+    ],
+
+    "general": [],
+}
+
+BUDGET_LEVELS = ["low", "medium", "high"]
+
+ENTITY_TYPES = ["hotels", "flights", "activities"]
+
+ACCOMMODATION_TYPES = ["hotel", "hostel", "apartment", "bnb"]
+
 RULES = (
     "Rules:\n"
     "- Use PLAN_TRIP when the user expresses the goal of planning a trip, or provides any core trip information "
-    "(e.g., destination, dates, number of people, budget, travel style, accommodation), even if provided incrementally "
+    f"(e.g., {INTENT_SCHEMAS['PLAN_TRIP']['slots']}), even if provided incrementally "
     "or as a modification of previous information.\n"
     
-    "- Use REQUEST_INFORMATION when the user asks for general information about a destination or entity "
-    "(e.g., attractions, events, museums, costs), without explicitly requesting a personalized trip plan.\n"
+    "- Use REQUEST_INFORMATION when the user asks for general information about a destination without explicitly requesting a " "personalized trip plan. The information that could be provided are entity types such as hotels, flights, or activities, "
+    f"and a budget level\n"
     
-    "- Use COMPARE_OPTIONS when the user asks to compare two or more options "
-    "(e.g., cities, accommodations, activities, or travel choices) based on explicit or implicit criteria.\n"
-    
-    "- Use CONFIRM_DETAILS only when the system has explicitly asked for a yes/no confirmation "
-    "and the user responds with confirmation or rejection (e.g., yes, no, correct, that's right).\n"
-    
+    "- Use COMPARE_OPTIONS when the user asks to compare two cities based on a specific activity criterion. \n"
+
     "- Use END_DIALOGUE when the user clearly intends to end the conversation "
-    "(e.g., bye, thanks, stop, quit).\n"
+    "(e.g., bye, stop, quit).\n"
     
     "- Use OOD when the user input does not match any of the above intents or is out of domain.\n"
 )
@@ -68,45 +119,36 @@ SLOT_DESCRIPTIONS = {
     "num_people": "the number of travelers included in the trip",
 
     "travel_style": "the preferred type of travel experience "
-                    "(e.g., culture, walking, relaxation, nightlife)",
+                    f"(e.g., {list(ACTIVITY_CATEGORIES.keys())})",
 
     "accommodation_type": "the preferred type of accommodation "
-                    "(e.g., hotel, hostel, apartment)",
+                    f"(e.g., {ACCOMMODATION_TYPES})",
 
     "budget_level": "the overall budget level for the trip "
-                    "(e.g., low, medium, high)",
+                    f"(e.g., {BUDGET_LEVELS})",
 
     # -------- REQUEST_INFORMATION --------
     "entity_type": "the type of entity the user is asking information about "
-                   "(e.g., hotels, flights, activities, events)",
-
-    "budget_constraint": "a budget constraint used to filter or contextualize "
-                    "the requested information",
+                   f"(e.g., {ENTITY_TYPES})",
 
     # -------- COMPARE_OPTIONS --------
-    "option1": "the first option to be compared "
-               "(e.g., a city, hotel, flight, or activity)",
+    "option1": "the first city to be compared",
 
-    "option2": "the second option to be compared "
-               "(e.g., a city, hotel, flight, or activity)",
+    "option2": "the second city to be compared",
 
-    "criteria": "the aspect used to compare the options "
-                "(e.g., price, activities, comfort)",
 
-    "compare_type": "the type of items being compared "
-                "(e.g., destination, accommodation, flight, activity)",
+    "compare_type": "the type of activity being compared "
+                f"(e.g., {list(ACTIVITY_CATEGORIES.keys())})",
 }
 
 
 DM_ACTIONS = [
-    "GREETING",
-    "ASK_CLARIFICATION",
-    "ASK_CONFIRMATION",
-    "ACK_UPDATE",
-    "REQUEST_MISSING_SLOT",
-    "PROPOSE_TRIP_PLAN",
-    "ASK_WHICH_SLOT_TO_CHANGE",
-    "ASK_NEW_VALUE_FOR_SLOT",
-    "ACK_CHANGED_SLOT",
-    "GOODBYE"
+    "REQUEST_MISSING_SLOT",   # ask for one missing slot
+    "ASK_CONFIRMATION",       # confirm collected information
+    "PROPOSE_TRIP_PLAN",      # final goal for PLAN_TRIP
+    "PROVIDE_INFORMATION",    # REQUEST_INFORMATION intent
+    "PROVIDE_COMPARISON",     # COMPARE_OPTIONS intent
+    "HANDLE_SLOT_CHANGE",     # generic modification flow
+    "ASK_CLARIFICATION",      # fallback / OOD / ambiguity
+    "GOODBYE"                 # end dialogue
 ]

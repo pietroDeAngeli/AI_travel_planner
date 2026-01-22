@@ -1,6 +1,7 @@
 
 BASE_URL = "https://test.api.amadeus.com"
 import requests
+from schema import ACTIVITY_CATEGORIES
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -9,65 +10,6 @@ import os
 
 AMADEUS_API_KEY = os.getenv("AMADEUS_API_KEY")
 AMADEUS_API_SECRET = os.getenv("AMADEUS_API_SECRET")
-
-ACTIVITY_CATEGORIES = {
-
-    "adventure": [
-        "adventure", "hiking", "trekking", "climbing",
-        "kayak", "rafting", "bike", "biking", "cycling",
-        "outdoor", "jeep", "atv", "quad", "safari"
-    ],
-
-    "walk": [
-        "walking", "walk", "free tour",
-        "city tour", "guided walk",
-        "walking tour", "on foot", "sightseeing"
-    ],
-
-    "cultural": [
-        "museum", "gallery", "art", "exhibition",
-        "cathedral", "church", "basilica",
-        "palace", "royal", "historic", "history",
-        "monument", "heritage", "archaeological",
-    ],
-
-    "food": [
-        "food", "wine", "tapas", "gastronomy",
-        "culinary", "tasting", "dinner", "lunch",
-        "market", "cooking", "cooking class"
-    ],
-
-    "sport": [
-        "stadium", "football", "soccer",
-        "basketball", "tennis",
-        "bernabeu", "arena", "olympic"
-    ],
-
-    "relax": [
-        "spa", "wellness", "relax",
-        "thermal", "bath", "cruise",
-        "boat", "river", "panoramic", "sunset"
-    ],
-
-    "nature": [
-        "nature", "park", "garden",
-        "botanical", "natural",
-        "scenic", "landscape",
-        "mountain", "lake"
-    ],
-
-    "nightlife": [
-        "night", "nightlife", "bar", "pub",
-        "club", "show", "concert",
-        "music", "live", "flamenco"
-    ],
-
-    "family": [
-        "family", "kids", "children",
-        "zoo", "aquarium",
-        "theme park", "amusement", "park"
-    ]
-}
 
 
 def search_activities(city, radius_km=3, activity_type="cultural"):
@@ -101,17 +43,37 @@ def search_activities(city, radius_km=3, activity_type="cultural"):
     # Sort categories by preferred activity
     activities.sort(key=lambda a: (a["activity_type"] != activity_type, a["name"]))
 
-    return activities[:5]
+    return activities[:10]
+
+def compare_options(city1: str, city2: str, compare_type: str):
+    if compare_type not in ACTIVITY_CATEGORIES:
+        return [], []
+    
+    activities1 = search_activities(city1, activity_type=compare_type)
+    activities2 = search_activities(city2, activity_type=compare_type)
+    return activities1, activities2
+
+def request_information(city: str, entity_type: str):
+    if entity_type not in ["hotels", "flights", "activities"]:
+        return []
+
+    if entity_type == "activities":
+        return search_activities(city)
+    elif entity_type == "hotels":
+        return search_accomodation(city)
+    else:
+        # Flights search not implemented
+        return []
 
 def classify_activity(name: str | None) -> str:
     if not name:
-        return "other"
+        return "general"
 
     name = name.lower()
     for category, keywords in ACTIVITY_CATEGORIES.items():
         if any(k in name for k in keywords):
             return category
-    return "other"
+    return "general"
 
 
 def search_accomodation(city, radius_km=3, ratings="1,2,3,4,5", num_adults=1, start_date="YYYY-MM-DD", end_date="YYYY-MM-DD"):
