@@ -1,124 +1,191 @@
 from llm import make_llm
+from dst import state_context
 from nlu import nlu_parse
 from dm import DialogueState, dm_decide
-from nlg import nlg_respond
+from nlg import nlg_generate, GREETING_MESSAGE
+from schema import parse_action
 from amadeus import search_activities, search_accomodation
+import argparse
 
 
-def run_demo():
+def update_state_after_action(state: DialogueState, action: str, api_results=None):
+    """
+    Update dialogue state after DM decision and API calls.
+    Handles completion actions and marks bookings as done.
+    """
+    base_action, _ = parse_action(action)
+    
+    # Handle booking completions
+    if base_action in ["COMPLETE_FLIGHT_BOOKING", "COMPLETE_ACCOMMODATION_BOOKING", "COMPLETE_ACTIVITY_BOOKING"]:
+        # Mark current booking as completed
+        if state.current_intent:
+            state.context.mark_completed(state.current_intent)
+            if api_results:
+                # Could store API results in state if needed
+                pass
+    
+    # Handle GOODBYE - could clean up state
+    if base_action == "GOODBYE":
+        pass  # State will be discarded anyway
+
+
+def run(debug: bool = False):
+    if debug:
+        print("------------------> DEBUG MODE ENABLED <------------------")
+
     pipe = make_llm()
+    if debug:
+        if pipe is None:
+            print("Error: LLM pipeline could not be created.")
+            print("----------------------------------------------------------")
+
     state = DialogueState()
+    if debug:
+        print("Initial Dialogue State:")
+        print(state)
+        print("----------------------------------------------------------")
     history = []
 
-    print("🌍Welcome to your Travel Planning Assistant!")
-    print("=" * 70)
-    print("\nI can help you with:")
-    print("  🗺️  Plan Your Trip")
-    print("      Tell me where you want to go, when, and with how many people.")
-    print("      I'll organize your trip based on your budget (low/medium/high),")
-    print("      accommodation preferences (hotel/hostel/apartment/bnb), and")
-    print("      travel style (adventure, cultural, food, sport, relax, nature,")
-    print("      nightlife, or family-friendly).")
-    print("\n  ℹ️  Get Travel Information")
-    print("      Ask about hotels, flights, or activities in any destination.")
-    print("\n  ⚖️  Compare Destinations")
-    print("      Compare two cities based on travel styles.")
-    print("\nJust tell me where you'd like to go or what you're interested in!")
-    print("=" * 70)
-    print()
+    print(GREETING_MESSAGE)
 
     while True:
         user = input("YOU: ").strip()
         if not user:
             continue
+        if debug:
+            print("User Utterance:")
+            print(user)
+            print("----------------------------------------------------------")
 
         # =========================
-        # 1) NLU
+        # 1) DST - Generate context-aware prompt
         # =========================
-        nlu_output = nlu_parse(pipe, user, dialogue_history=history)
-
-        # =========================
-        # 2) DM (LLM-based)
-        # =========================
-        action = dm_decide(pipe, state, nlu_output, user)
+        system_prompt = state_context(state)
 
         # =========================
-        # 3) ORCHESTRATOR LOGIC
+        # 2) NLU - Parse intent and slots
         # =========================
-        payload = {
-            "info": state.info,
-            "current_intent": state.current_intent,
-            "task_intent": state.task_intent,
-            "plan": None,
-        }
+        nlu_output = nlu_parse(pipe, user, system_prompt, dialogue_history=history)
+        if debug:
+            print("NLU Output:")
+            print(nlu_output)
+            print("----------------------------------------------------------")
 
-        # ---- Tool calling (Amadeus) ----
-        if action in {"PROPOSE_TRIP_PLAN", "PROVIDE_INFORMATION"}:
-            activities = []
-            accommodations = []
+        # =========================
+        # 3) DM - Decide action (also updates state internally)
+        # =========================
+        action = dm_decide(pipe, state, nlu_output)
+        base_action, slot_param = parse_action(action)
+        
+        if debug:
+            print("DM Action:")
+            print(f"  Full: {action}")
+            print(f"  Base: {base_action}, Param: {slot_param}")
+            print("Dialogue State:")
+            print(state)
+            print("----------------------------------------------------------")
 
-            # Activities
-            if state.info.destination:
-                activities = search_activities(
-                    destination=state.info.destination
-                )
-
-            # Accommodations
-            if (
-                state.info.destination
-                and state.info.start_date
-                and state.info.end_date
-            ):
-                adults = state.info.num_people or 1
-                budget = state.info.budget_level or "medium"
-
+        # =========================
+        # 4) API CALLS (if needed)
+        # =========================
+        api_results = None
+        
+        if base_action == "COMPLETE_FLIGHT_BOOKING":
+            # Flight API calls would go here
+            flight = state.context.flight
+            if debug:
+                print(f"[API] Would search flights: {flight.to_dict()}")
+            # api_results = search_flights(...)
+            pass
+        
+        elif base_action == "COMPLETE_ACCOMMODATION_BOOKING":
+            accommodation = state.context.accommodation
+            if accommodation.destination and accommodation.check_in_date and accommodation.check_out_date:
+                adults = accommodation.num_guests or 1
+                budget = accommodation.budget_level or "medium"
+                
                 ratings = {
                     "low": "1,2",
                     "medium": "3,4",
                     "high": "5",
                 }.get(budget, "3,4")
-
-                accommodations = search_accomodation(
-                    city=state.info.destination,
-                    ratings=ratings,
-                    num_adults=adults,
-                    start_date=state.info.start_date,
-                    end_date=state.info.end_date,
-                )
-
-            state.plan = {
-                "activities": activities,
-                "accommodations": accommodations,
-            }
-
-            payload["plan"] = state.plan
-
-        # ---- Missing slot handling ----
-        if action == "REQUEST_MISSING_SLOT":
-            missing = state.info.missing_slots(state.task_intent)
-            payload["missing_slot"] = missing[0] if missing else None
-
-        # ---- Confirmation ----
-        if action == "ASK_CONFIRMATION":
-            payload["summary"] = state.info.to_dict(state.task_intent)
-
-        # ---- End dialogue ----
-        if action == "GOODBYE":
-            state = DialogueState()
-
-        # =========================
-        # 4) NLG
-        # =========================
-        response = nlg_respond(pipe, action, payload, user)
+                
+                try:
+                    api_results = search_accomodation(
+                        city=accommodation.destination,
+                        ratings=ratings,
+                        num_adults=adults,
+                        start_date=accommodation.check_in_date,
+                        end_date=accommodation.check_out_date,
+                    )
+                except Exception as e:
+                    if debug:
+                        print(f"[API] Accommodation search failed: {e}")
+        
+        elif base_action == "COMPLETE_ACTIVITY_BOOKING":
+            activity = state.context.activity
+            if activity.destination:
+                try:
+                    api_results = search_activities(
+                        city=activity.destination,
+                        activity_type=activity.activity_category or "cultural",
+                    )
+                except Exception as e:
+                    if debug:
+                        print(f"[API] Activity search failed: {e}")
+        
+        elif base_action == "COMPARE_CITIES_RESULT":
+            # Would call compare_options from amadeus.py
+            pass
 
         # =========================
-        # 5) Update history
+        # 5) Update state after action
+        # =========================
+        update_state_after_action(state, action, api_results)
+
+        # =========================
+        # 6) NLG - Generate response
+        # =========================
+        response = nlg_generate(pipe, action, state)
+        
+        # Append API results summary if available
+        if api_results and base_action in ["COMPLETE_ACCOMMODATION_BOOKING", "COMPLETE_ACTIVITY_BOOKING"]:
+            if isinstance(api_results, list) and len(api_results) > 0:
+                results_summary = f"\n\nHere are some options I found:\n"
+                for i, result in enumerate(api_results[:3], 1):
+                    if isinstance(result, dict):
+                        name = result.get("name", "Option")
+                        price = result.get("price", "N/A")
+                        results_summary += f"{i}. {name} - {price}\n"
+                response += results_summary
+        
+        if debug:
+            print("NLG Response:")
+            print(response)
+            if api_results:
+                print("API Results:", api_results[:2] if isinstance(api_results, list) else api_results)
+            print("----------------------------------------------------------")
+
+        # =========================
+        # 7) Update history
         # =========================
         history.append({"role": "user", "content": user})
         history.append({"role": "assistant", "content": response})
 
         print(f"BOT: {response}\n")
+        
+        # Exit on goodbye
+        if base_action == "GOODBYE":
+            break
 
 
 if __name__ == "__main__":
-    run_demo()
+    parser = argparse.ArgumentParser(description="AI Travel Planner")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode"
+    )
+    args = parser.parse_args()
+    
+    run(debug=args.debug)

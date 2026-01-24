@@ -11,6 +11,9 @@ import os
 AMADEUS_API_KEY = os.getenv("AMADEUS_API_KEY")
 AMADEUS_API_SECRET = os.getenv("AMADEUS_API_SECRET")
 
+def search_flights():
+    return """Flight search not implemented yet."""
+
 
 def search_activities(city, radius_km=3, activity_type="cultural"):
     token = get_access_token()

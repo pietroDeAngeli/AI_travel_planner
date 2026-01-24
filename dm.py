@@ -1,112 +1,189 @@
+import json
+import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
-from data import UserInformation
-from schema import SLOTS, DM_ACTIONS
+from typing import Any, Dict, List, Optional
+
+from data import TripContext
+from schema import INTENTS, get_dm_actions_list, build_dm_actions_prompt
 
 
 @dataclass
 class DialogueState:
-    info: UserInformation = field(default_factory=UserInformation)
-    current_intent: Optional[str] = None
-    task_intent: Optional[str] = None
-    current_state: str = "INIT"
-    confirmed: bool = False
-    plan: Optional[Dict[str, Any]] = None
+    """
+    Dialogue State Tracker for multi-booking travel planner.
+    Maintains context across multiple self-contained booking intents.
+    """
+    context: TripContext = field(default_factory=TripContext)
+    
+    # Current booking flow
+    current_intent: Optional[str] = None  # The active booking intent
+    
+    # Carryover data when switching intents
+    pending_carryover: Optional[Dict[str, Any]] = None
+    
+    # Last action for tracking
+    last_action: Optional[str] = None
 
     def __str__(self) -> str:
         return (
             "DialogueState(\n"
-            f"  state      = {self.current_state}\n"
-            f"  intent     = {self.current_intent}\n"
-            f"  task       = {self.task_intent}\n"
-            f"  confirmed  = {self.confirmed}\n"
-            f"  info       = {self.info}\n"
+            f"  current_intent = {self.current_intent}\n"
+            f"  context:\n{self.context}\n"
             ")"
         )
 
+    def get_current_booking(self):
+        """Get the booking object for the current intent."""
+        return self.context.get_booking(self.current_intent)
 
-def update_info(state: DialogueState, intent: str, slots: Dict[str, Any]) -> None:
-    state.current_intent = intent
+    def get_missing_slots(self) -> List[str]:
+        """Get missing slots for the current booking."""
+        booking = self.get_current_booking()
+        if booking and hasattr(booking, 'missing_slots'):
+            return booking.missing_slots()
+        return []
+    
+    def to_summary(self) -> Dict[str, Any]:
+        """Create a summary of current state for LLM consumption."""
+        booking = self.get_current_booking()
+        booking_data = booking.to_dict() if booking else {}
+        filled_slots = {k: v for k, v in booking_data.items() if v is not None}
+        
+        return {
+            "current_intent": self.current_intent,
+            "filled_slots": filled_slots,
+            "missing_slots": self.get_missing_slots(),
+            "completed_bookings": list(self.context.completed_intents),
+        }
 
-    if intent == "PLAN_TRIP":
-        state.task_intent = intent
-        state.info.update_info(slots)
-        state.confirmed = False
+
+# =============================================================================
+# LLM-BASED DIALOGUE MANAGER
+# =============================================================================
+
+def _build_dm_system_prompt() -> str:
+    """Build dynamic DM system prompt with action rules."""
+    return f"""You are a Dialogue Manager (DM) for a travel booking system.
+Your task is to decide the next system action based on the dialogue state and NLU output.
+
+{build_dm_actions_prompt()}
+
+DECISION PRIORITY (follow in order):
+1. If intent is OOD or unclear -> ASK_CLARIFICATION
+2. If intent is COMPARE_CITIES and city1, city2 are filled -> COMPARE_CITIES_RESULT  
+3. If user said goodbye/thanks/done -> GOODBYE
+4. If last_action was ASK_CONFIRMATION:
+   - User confirmed (yes/ok/sure) -> COMPLETE_<INTENT>_BOOKING
+   - User denied (no/change) -> HANDLE_DENIAL
+5. If last_action was OFFER_SLOT_CARRYOVER:
+   - User accepted -> continue with booking flow
+   - User denied -> HANDLE_DENIAL (reset carryover slots)
+6. If pending_carryover exists and not yet offered -> OFFER_SLOT_CARRYOVER
+7. If missing_slots is NOT empty -> REQUEST_MISSING_SLOT(first_missing_slot)
+8. If missing_slots is empty (all slots filled) -> ASK_CONFIRMATION
+
+OUTPUT FORMAT:
+- For REQUEST_MISSING_SLOT, output: REQUEST_MISSING_SLOT(slot_name) where slot_name is the first missing slot
+- For booking completion, use the specific action: COMPLETE_FLIGHT_BOOKING, COMPLETE_ACCOMMODATION_BOOKING, or COMPLETE_ACTIVITY_BOOKING
+- For all other actions, output just the action name
+
+Output ONLY a single action. No explanation.
+"""
+
+def _dm_llm_decide(
+    pipe,
+    state: DialogueState,
+    intent: str,
+    slots: Dict[str, Any],
+) -> str:
+    """
+    Use LLM to decide the next dialogue action.
+    Returns the action string.
+    """
+    from schema import is_valid_action
+    
+    state_summary = state.to_summary()
+    state_summary["last_action"] = state.last_action
+    state_summary["pending_carryover"] = state.pending_carryover
+    
+    system_prompt = _build_dm_system_prompt()
+    
+    user_prompt = f"""Current dialogue state:
+{json.dumps(state_summary, indent=2)}
+
+NLU output:
+- Intent: {intent}
+- Extracted slots: {json.dumps(slots)}
+
+What action should the system take next?"""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    
+    text = "ASK_CLARIFICATION"
+    try:
+        out = pipe(messages, max_new_tokens=50)
+        generated = out[0]["generated_text"]
+        if isinstance(generated, list):
+            text = generated[-1].get("content", "")
+        else:
+            text = str(generated)
+    except Exception as e:
+        print(f"[DM] LLM call failed: {e}")
+        return "ASK_CLARIFICATION"
+    
+    # Clean and validate action
+    action = text.strip().upper() if text else "ASK_CLARIFICATION"
+    # Remove any trailing punctuation or extra text
+    action = action.split()[0] if action else "ASK_CLARIFICATION"
+    
+    if not is_valid_action(action):
+        print(f"[DM] Invalid action from LLM: {action}")
+        return "ASK_CLARIFICATION"
+    
+    return action
 
 
 def dm_decide(
     pipe,
     state: DialogueState,
     nlu_output: Dict[str, Any],
-    user_utterance: str,
 ) -> str:
     """
-    LLM-based Dialogue Manager.
-    The LLM selects the next abstract action.
-    Symbolic guard-rails enforce coherence.
+    Dialogue Manager: decides the next system action.
+    
+    Args:
+        pipe: LLM pipeline
+        state: Current dialogue state
+        nlu_output: NLU result with intent and slots
+        user_utterance: Raw user input
+    
+    Returns:
+        The next DM action string.
     """
-
-    intent = nlu_output.get("intent")
+    intent = nlu_output.get("intent", "OOD")
     slots = nlu_output.get("slots", {})
 
-    update_info(state, intent, slots)
+    # Update current intent for booking intents
+    if intent in INTENTS and intent != "OOD":
+        # Check for carryover opportunity when switching intents
+        if state.current_intent and state.current_intent != intent:
+            carryover = state.context.get_carryover_slots(state.current_intent, intent)
+            if carryover:
+                state.pending_carryover = carryover
+        state.current_intent = intent
+    
+    # Update slots in current booking
+    booking = state.get_current_booking()
+    if booking and slots:
+        for slot, value in slots.items():
+            if value is not None and hasattr(booking, slot):
+                setattr(booking, slot, value)
 
-    missing_slots = state.info.missing_slots(state.task_intent)
-
-    prompt = f"""
-You are a Dialogue Manager for a task-oriented travel planning system.
-
-Your task is to choose the NEXT SYSTEM ACTION.
-
-Available actions:
-{', '.join(DM_ACTIONS)}
-
-Current context:
-- Intent: {intent}
-- Task intent: {state.task_intent}
-- Missing slots: {missing_slots}
-- Confirmed: {state.confirmed}
-- Collected info: {state.info}
-
-Rules:
-- If intent is END_DIALOGUE → GOODBYE
-- If intent is OOD or unclear → ASK_CLARIFICATION
-- If there are missing slots → REQUEST_MISSING_SLOT
-- If no missing slots and not confirmed → ASK_CONFIRMATION
-- If confirmed and intent is PLAN_TRIP → PROPOSE_TRIP_PLAN
-- If intent is REQUEST_INFORMATION → PROVIDE_INFORMATION
-- If intent is COMPARE_OPTIONS → PROVIDE_COMPARISON
-
-Return ONLY the action name.
-""".strip()
-
-    messages = [
-        {"role": "system", "content": "You output ONLY one action name."},
-        {"role": "user", "content": prompt},
-    ]
-
-    out = pipe(
-        messages,
-        max_new_tokens=50,
-        temperature=0.0,
-        do_sample=False,
-    )
-
-    raw = out[0]["generated_text"][-1]["content"].strip().upper()
-
-    # --- Guard rails ---
-    action = raw if raw in DM_ACTIONS else "ASK_CLARIFICATION"
-
-    if action == "PROPOSE_TRIP_PLAN" and missing_slots:
-        action = "REQUEST_MISSING_SLOT"
-
-    if action == "ASK_CONFIRMATION":
-        state.current_state = "CONFIRM_DETAILS"
-
-    if action == "PROPOSE_TRIP_PLAN":
-        state.current_state = "TASK_CONFIRMED"
-
-    if action == "GOODBYE":
-        state.current_state = "INIT"
-
+    # Get action from LLM
+    action = _dm_llm_decide(pipe, state, intent, slots)
+    state.last_action = action
+    
     return action
