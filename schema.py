@@ -167,6 +167,10 @@ DM_ACTIONS = {
         "description": "Handle when user denies confirmation and wants to modify something",
         "rule": "When user responds negatively to ASK_CONFIRMATION or OFFER_SLOT_CARRYOVER",
     },
+    "REQUEST_SLOT_CHANGE": {
+        "description": "Ask user which slot they want to change after negative confirmation",
+        "rule": "When user denies confirmation and we need to know which slot to modify",
+    },
     
     # Booking completion
     "COMPLETE_FLIGHT_BOOKING": {
