@@ -24,6 +24,7 @@ class FlightBooking:
             "return_date": self.return_date,
             "num_passengers": self.num_passengers,
             "budget_level": self.budget_level,
+            "completed": self.completed,
         }
 
     def missing_slots(self) -> List[str]:
@@ -57,6 +58,7 @@ class AccommodationBooking:
             "check_out_date": self.check_out_date,
             "num_guests": self.num_guests,
             "budget_level": self.budget_level,
+            "completed": self.completed,
         }
 
     def missing_slots(self) -> List[str]:
@@ -85,6 +87,7 @@ class ActivityBooking:
             "destination": self.destination,
             "activity_category": self.activity_category,
             "budget_level": self.budget_level,
+            "completed": self.completed,
         }
 
     def missing_slots(self) -> List[str]:

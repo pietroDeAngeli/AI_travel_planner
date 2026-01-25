@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from data import TripContext
-from schema import INTENTS, get_dm_actions_list, build_dm_actions_prompt
+from schema import INTENTS
 
 
 @dataclass
@@ -20,6 +20,9 @@ class DialogueState:
     
     # Carryover data when switching intents
     pending_carryover: Optional[Dict[str, Any]] = None
+    
+    # Track if carryover was offered (waiting for user response)
+    awaiting_carryover_response: bool = False
     
     # Last action for tracking
     last_action: Optional[str] = None
@@ -44,7 +47,7 @@ class DialogueState:
         return []
     
     def to_summary(self) -> Dict[str, Any]:
-        """Create a summary of current state for LLM consumption."""
+        """Create a summary of current state."""
         booking = self.get_current_booking()
         booking_data = booking.to_dict() if booking else {}
         filled_slots = {k: v for k, v in booking_data.items() if v is not None}
@@ -58,121 +61,147 @@ class DialogueState:
 
 
 # =============================================================================
-# LLM-BASED DIALOGUE MANAGER
+# RULE-BASED DIALOGUE MANAGER
 # =============================================================================
 
-def _build_dm_system_prompt() -> str:
-    """Build dynamic DM system prompt with action rules."""
-    return f"""You are a Dialogue Manager (DM) for a travel booking system.
-Your task is to decide the next system action based on the dialogue state and NLU output.
+# Confirmation keywords
+CONFIRM_KEYWORDS = {"yes", "yeah", "yep", "sure", "ok", "okay", "correct", "right", "confirm", "si", "sì"}
+DENY_KEYWORDS = {"no", "nope", "nah", "wrong", "change", "cancel", "modify", "different"}
+GOODBYE_KEYWORDS = {"bye", "goodbye", "thanks", "thank", "done", "exit", "quit", "ciao", "grazie"}
 
-{build_dm_actions_prompt()}
 
-DECISION PRIORITY (follow in order):
-1. If intent is OOD or unclear -> ASK_CLARIFICATION
-2. If intent is COMPARE_CITIES and city1, city2 are filled -> COMPARE_CITIES_RESULT  
-3. If user said goodbye/thanks/done -> GOODBYE
-4. If last_action was ASK_CONFIRMATION:
-   - User confirmed (yes/ok/sure) -> COMPLETE_<INTENT>_BOOKING
-   - User denied (no/change) -> HANDLE_DENIAL
-5. If last_action was OFFER_SLOT_CARRYOVER:
-   - User accepted -> continue with booking flow
-   - User denied -> HANDLE_DENIAL (reset carryover slots)
-6. If pending_carryover exists and not yet offered -> OFFER_SLOT_CARRYOVER
-7. If missing_slots is NOT empty -> REQUEST_MISSING_SLOT(first_missing_slot)
-8. If missing_slots is empty (all slots filled) -> ASK_CONFIRMATION
+def _is_confirmation(user_text: str) -> bool:
+    """Check if user utterance is a confirmation."""
+    words = set(user_text.lower().split())
+    return bool(words & CONFIRM_KEYWORDS)
 
-OUTPUT FORMAT:
-- For REQUEST_MISSING_SLOT, output: REQUEST_MISSING_SLOT(slot_name) where slot_name is the first missing slot
-- For booking completion, use the specific action: COMPLETE_FLIGHT_BOOKING, COMPLETE_ACCOMMODATION_BOOKING, or COMPLETE_ACTIVITY_BOOKING
-- For all other actions, output just the action name
 
-Output ONLY a single action. No explanation.
-"""
+def _is_denial(user_text: str) -> bool:
+    """Check if user utterance is a denial."""
+    words = set(user_text.lower().split())
+    return bool(words & DENY_KEYWORDS)
 
-def _dm_llm_decide(
-    pipe,
-    state: DialogueState,
-    intent: str,
-    slots: Dict[str, Any],
-) -> str:
-    """
-    Use LLM to decide the next dialogue action.
-    Returns the action string.
-    """
-    from schema import is_valid_action
-    
-    state_summary = state.to_summary()
-    state_summary["last_action"] = state.last_action
-    state_summary["pending_carryover"] = state.pending_carryover
-    
-    system_prompt = _build_dm_system_prompt()
-    
-    user_prompt = f"""Current dialogue state:
-{json.dumps(state_summary, indent=2)}
 
-NLU output:
-- Intent: {intent}
-- Extracted slots: {json.dumps(slots)}
+def _is_goodbye(user_text: str) -> bool:
+    """Check if user wants to end the conversation."""
+    words = set(user_text.lower().split())
+    return bool(words & GOODBYE_KEYWORDS)
 
-What action should the system take next?"""
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
-    ]
-    
-    text = "ASK_CLARIFICATION"
-    try:
-        out = pipe(messages, max_new_tokens=50)
-        generated = out[0]["generated_text"]
-        if isinstance(generated, list):
-            text = generated[-1].get("content", "")
-        else:
-            text = str(generated)
-    except Exception as e:
-        print(f"[DM] LLM call failed: {e}")
-        return "ASK_CLARIFICATION"
-    
-    # Clean and validate action
-    action = text.strip().upper() if text else "ASK_CLARIFICATION"
-    # Remove any trailing punctuation or extra text
-    action = action.split()[0] if action else "ASK_CLARIFICATION"
-    
-    if not is_valid_action(action):
-        print(f"[DM] Invalid action from LLM: {action}")
-        return "ASK_CLARIFICATION"
-    
-    return action
+def _get_complete_action(intent: str) -> str:
+    """Get the completion action for an intent."""
+    mapping = {
+        "BOOK_FLIGHT": "COMPLETE_FLIGHT_BOOKING",
+        "BOOK_ACCOMMODATION": "COMPLETE_ACCOMMODATION_BOOKING",
+        "BOOK_ACTIVITY": "COMPLETE_ACTIVITY_BOOKING",
+    }
+    return mapping.get(intent, "ASK_CLARIFICATION")
 
 
 def dm_decide(
-    pipe,
     state: DialogueState,
     nlu_output: Dict[str, Any],
+    user_utterance: str = "",
 ) -> str:
     """
-    Dialogue Manager: decides the next system action.
+    Rule-based Dialogue Manager: decides the next system action.
+    
+    Decision priority:
+    1. GOODBYE intent or keywords -> GOODBYE
+    2. COMPARE_CITIES with both cities -> COMPARE_CITIES_RESULT
+    3. Handle confirmation/denial after ASK_CONFIRMATION
+    4. Handle carryover acceptance/rejection
+    5. OOD intent -> ASK_CLARIFICATION
+    6. Offer carryover if available
+    7. Request missing slots
+    8. All slots filled -> ASK_CONFIRMATION
     
     Args:
-        pipe: LLM pipeline
         state: Current dialogue state
         nlu_output: NLU result with intent and slots
-        user_utterance: Raw user input
+        user_utterance: Raw user input (for confirmation detection)
     
     Returns:
         The next DM action string.
     """
     intent = nlu_output.get("intent", "OOD")
     slots = nlu_output.get("slots", {})
-
-    # Update current intent for booking intents
-    if intent in INTENTS and intent != "OOD":
+    user_text = user_utterance.lower().strip()
+    
+    # =========================================================================
+    # 1. GOODBYE - End conversation
+    # =========================================================================
+    if intent == "GOODBYE" or _is_goodbye(user_text):
+        state.last_action = "GOODBYE"
+        return "GOODBYE"
+    
+    # =========================================================================
+    # 2. COMPARE_CITIES - Informative intent (no booking)
+    # =========================================================================
+    if intent == "COMPARE_CITIES":
+        city1 = slots.get("city1")
+        city2 = slots.get("city2")
+        if city1 and city2:
+            state.last_action = "COMPARE_CITIES_RESULT"
+            return "COMPARE_CITIES_RESULT"
+        else:
+            state.last_action = "ASK_CLARIFICATION"
+            return "ASK_CLARIFICATION"
+    
+    # =========================================================================
+    # 3. Handle user response after ASK_CONFIRMATION
+    # =========================================================================
+    if state.last_action == "ASK_CONFIRMATION":
+        if _is_confirmation(user_text):
+            # Complete the booking
+            action = _get_complete_action(state.current_intent)
+            state.context.mark_completed(state.current_intent)
+            state.last_action = action
+            return action
+        elif _is_denial(user_text):
+            # User wants to change something
+            state.last_action = "HANDLE_DENIAL"
+            return "HANDLE_DENIAL"
+        # If neither, continue processing as new input
+    
+    # =========================================================================
+    # 4. Handle carryover offer response
+    # =========================================================================
+    if state.awaiting_carryover_response:
+        if _is_confirmation(user_text):
+            # Apply carryover slots
+            if state.pending_carryover:
+                booking = state.get_current_booking()
+                if booking:
+                    for slot, value in state.pending_carryover.items():
+                        if hasattr(booking, slot):
+                            setattr(booking, slot, value)
+            state.pending_carryover = None
+            state.awaiting_carryover_response = False
+            # Continue to check missing slots below
+        elif _is_denial(user_text):
+            # User declined carryover
+            state.pending_carryover = None
+            state.awaiting_carryover_response = False
+            # Continue to check missing slots below
+    
+    # =========================================================================
+    # 5. OOD - Out of domain
+    # =========================================================================
+    if intent == "OOD":
+        state.last_action = "ASK_CLARIFICATION"
+        return "ASK_CLARIFICATION"
+    
+    # =========================================================================
+    # 6. Update state for booking intents
+    # =========================================================================
+    if intent in INTENTS:
         # Check for carryover opportunity when switching intents
         if state.current_intent and state.current_intent != intent:
-            carryover = state.context.get_carryover_slots(state.current_intent, intent)
+            carryover = state.context.get_carryover_values(state.current_intent, intent)
             if carryover:
                 state.pending_carryover = carryover
+        
         state.current_intent = intent
     
     # Update slots in current booking
@@ -181,9 +210,34 @@ def dm_decide(
         for slot, value in slots.items():
             if value is not None and hasattr(booking, slot):
                 setattr(booking, slot, value)
-
-    # Get action from LLM
-    action = _dm_llm_decide(pipe, state, intent, slots)
-    state.last_action = action
     
-    return action
+    # =========================================================================
+    # 7. Offer slot carryover if available
+    # =========================================================================
+    if state.pending_carryover and not state.awaiting_carryover_response:
+        state.awaiting_carryover_response = True
+        state.last_action = "OFFER_SLOT_CARRYOVER"
+        return "OFFER_SLOT_CARRYOVER"
+    
+    # =========================================================================
+    # 8. Request missing slots
+    # =========================================================================
+    missing = state.get_missing_slots()
+    if missing:
+        first_missing = missing[0]
+        action = f"REQUEST_MISSING_SLOT({first_missing})"
+        state.last_action = action
+        return action
+    
+    # =========================================================================
+    # 9. All slots filled -> Ask for confirmation
+    # =========================================================================
+    if booking:
+        state.last_action = "ASK_CONFIRMATION"
+        return "ASK_CONFIRMATION"
+    
+    # =========================================================================
+    # Fallback
+    # =========================================================================
+    state.last_action = "ASK_CLARIFICATION"
+    return "ASK_CLARIFICATION"

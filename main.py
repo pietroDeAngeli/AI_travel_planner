@@ -7,6 +7,12 @@ from schema import parse_action
 from amadeus import search_activities, search_accomodation
 import argparse
 
+class Color:
+    RESET = "\033[0m"
+    GREEN = "\033[92m"
+    RED = "\033[91m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
 
 def update_state_after_action(state: DialogueState, action: str, api_results=None):
     """
@@ -46,16 +52,12 @@ def run(debug: bool = False):
         print("----------------------------------------------------------")
     history = []
 
-    print(GREETING_MESSAGE)
+    print(f"{Color.GREEN}{GREETING_MESSAGE}{Color.RESET}")
 
     while True:
         user = input("YOU: ").strip()
         if not user:
             continue
-        if debug:
-            print("User Utterance:")
-            print(user)
-            print("----------------------------------------------------------")
 
         # =========================
         # 1) DST - Generate context-aware prompt
@@ -74,13 +76,12 @@ def run(debug: bool = False):
         # =========================
         # 3) DM - Decide action (also updates state internally)
         # =========================
-        action = dm_decide(pipe, state, nlu_output)
+        action = dm_decide(state, nlu_output, user)
         base_action, slot_param = parse_action(action)
         
         if debug:
             print("DM Action:")
-            print(f"  Full: {action}")
-            print(f"  Base: {base_action}, Param: {slot_param}")
+            print(f"  Action: {action}")
             print("Dialogue State:")
             print(state)
             print("----------------------------------------------------------")
@@ -160,8 +161,6 @@ def run(debug: bool = False):
                 response += results_summary
         
         if debug:
-            print("NLG Response:")
-            print(response)
             if api_results:
                 print("API Results:", api_results[:2] if isinstance(api_results, list) else api_results)
             print("----------------------------------------------------------")
@@ -172,7 +171,7 @@ def run(debug: bool = False):
         history.append({"role": "user", "content": user})
         history.append({"role": "assistant", "content": response})
 
-        print(f"BOT: {response}\n")
+        print(f"{Color.GREEN}BOT: {response}{Color.RESET}\n")
         
         # Exit on goodbye
         if base_action == "GOODBYE":

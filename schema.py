@@ -32,7 +32,9 @@ INTENT_SCHEMAS = {
     },    
     "OOD": {
         "slots": [],
-        "description": "Out of domain - request not supported"
+        "description": "Out of domain - request not supported",
+        "rule": "User request is not related to travel booking, or is unclear",
+        "examples": ["What's the weather?", "Tell me a joke", "How are you?"]
     },
 }
 
@@ -90,27 +92,27 @@ BUDGET_LEVELS = ["low", "medium", "high"]
 
 SLOT_DESCRIPTIONS = {
     # -------- Common --------
-    "destination": "The city or place the user wants to visit",
-    "budget_level": f"Budget preference: {BUDGET_LEVELS}",
+    "destination": "The city or place the user wants to visit\n",
+    "budget_level": f"Budget preference: {BUDGET_LEVELS}\n",
     
     # -------- BOOK_FLIGHT --------
-    "origin": "Departure city/airport",
-    "departure_date": "Flight departure date",
-    "return_date": "Flight return date (for round trips)",
-    "num_passengers": "Number of travelers for the flight",
+    "origin": "Departure city/airport\n",
+    "departure_date": "Flight departure date\n",
+    "return_date": "Flight return date (for round trips)\n",
+    "num_passengers": "Number of travelers for the flight\n",
     
     # -------- BOOK_ACCOMMODATION --------
-    "check_in_date": "Hotel check-in date",
-    "check_out_date": "Hotel check-out date",
-    "num_guests": "Number of guests staying",
+    "check_in_date": "Hotel check-in date\n",
+    "check_out_date": "Hotel check-out date\n",
+    "num_guests": "Number of guests staying\n",
     
     # -------- BOOK_ACTIVITY --------
-    "activity_category": f"Type of activity: {list(ACTIVITY_CATEGORIES.keys())}",
+    "activity_category": f"Type of activity: {list(ACTIVITY_CATEGORIES.keys())}\n",
     
     # -------- COMPARE_CITIES --------
-    "city1": "First city for comparison",
-    "city2": "Second city for comparison",
-    "activity_category": f"Type of activity: {list(ACTIVITY_CATEGORIES.keys())}",
+    "city1": "First city for comparison\n",
+    "city2": "Second city for comparison\n",
+    "activity_category": f"Type of activity: {list(ACTIVITY_CATEGORIES.keys())}\n",
 }
 
 def _build_rules() -> str:
@@ -124,7 +126,7 @@ def _build_rules() -> str:
         if examples:
             rules.append("- Examples:")
             for ex in examples:
-                rules.append(f"  • {ex}")
+                rules.append(f"  - {ex}")
         
         rules.append("")
 
@@ -159,7 +161,7 @@ DM_ACTIONS = {
     # Confirmation flow
     "ASK_CONFIRMATION": {
         "description": "Confirm all collected information before completing a booking",
-        "rule": "When all required slots are filled (missing_slots is empty)",
+        "rule": "When all required slots are filled (missing_slots is empty) and the intent is not confirmed yet",
     },
     "HANDLE_DENIAL": {
         "description": "Handle when user denies confirmation and wants to modify something",
@@ -169,21 +171,21 @@ DM_ACTIONS = {
     # Booking completion
     "COMPLETE_FLIGHT_BOOKING": {
         "description": "Finalize and confirm a flight booking",
-        "rule": "When current_intent is BOOK_FLIGHT and user confirms the booking",
+        "rule": "When current_intent is BOOK_FLIGHT and user confirms positively the booking",
     },
     "COMPLETE_ACCOMMODATION_BOOKING": {
         "description": "Finalize and confirm an accommodation booking",
-        "rule": "When current_intent is BOOK_ACCOMMODATION and user confirms the booking",
+        "rule": "When current_intent is BOOK_ACCOMMODATION and user confirms positively the booking",
     },
     "COMPLETE_ACTIVITY_BOOKING": {
         "description": "Finalize and confirm an activity booking",
-        "rule": "When current_intent is BOOK_ACTIVITY and user confirms the booking",
+        "rule": "When current_intent is BOOK_ACTIVITY and user confirms positively the booking",
     },
     
     # Compare cities
     "COMPARE_CITIES_RESULT": {
         "description": "Provide comparison between two cities for activities",
-        "rule": "When intent is COMPARE_CITIES and required slots are filled",
+        "rule": "When intent is COMPARE_CITIES AND required slots are filled AND confirmed",
     },
     
     # Dialogue management
@@ -239,9 +241,6 @@ def build_dm_actions_prompt() -> str:
     lines = ["Available actions:\n"]
     
     for action, info in DM_ACTIONS.items():
-        lines.append(f"- {action}")
-        lines.append(f"    Description: {info['description']}")
-        lines.append(f"    Rule: {info['rule']}")
-        lines.append("")
+        lines.append(f"- {action}: {info['rule']}")
     
     return "\n".join(lines)

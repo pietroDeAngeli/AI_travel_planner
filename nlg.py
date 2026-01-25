@@ -95,7 +95,7 @@ Missing information needed: {slot}
 Description: {slot_description}
 
 Ask ONLY about this information in a natural and polite way.
-Keep it short (1-2 sentences max).
+Keep it short (1 max).
 """
 
 

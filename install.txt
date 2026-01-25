@@ -1,0 +1,2 @@
+pip install dotenv torch numpy 
+pip install transformers accelerate
