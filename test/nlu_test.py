@@ -9,13 +9,12 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from llm import make_llm
-from nlu import nlu_parse
+from nlu import nlu_parse, state_context
+from dm import DialogueState
 from schema import INTENT_SLOTS, INTENTS
 
 
-# -------------------------
-# Helpers for robust checks
-# -------------------------
+# --- Helpers ---
 
 NOT_NONE = "__NOT_NONE__"
 ANY = "__ANY__"
@@ -76,13 +75,16 @@ def _check_expected_slots(exp_slots: Dict[str, Any], got_slots: Dict[str, Any]) 
 def _call_nlu(pipe, user: str, history: List[Dict[str, str]]) -> Dict[str, Any]:
     """
     Compatible with both nlu_parse signatures (with/without current_intent kw).
+    Generate system prompt using dst module before calling nlu_parse.
     """
-    return nlu_parse(pipe, user, dialogue_history=history)
+    # Create a default dialogue state for generating the system prompt
+    state = DialogueState()
+    system_prompt = state_context(state)
+    
+    return nlu_parse(pipe, user, system_prompt, dialogue_history=history)
 
 
-# -------------------------
-# Test cases aligned with schema.py
-# -------------------------
+# --- Test cases (aligned with schema.py) ---
 
 TEST_DIALOGUES = [
     # ==========================================================================

@@ -5,6 +5,7 @@ MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 #MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"
 
 def make_llm(model_id: str = MODEL_ID):
+    print( "Cuda available:",torch.cuda.is_available())
     dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     
@@ -35,5 +36,11 @@ def make_llm(model_id: str = MODEL_ID):
           device_map="auto",
           trust_remote_code=True,
       )
+
+    model = pipe.model
+    devices = {p.device.type for p in model.parameters()}
+    print("param devices:", devices)
+    print("first param device:", next(model.parameters()).device)
+
 
     return pipe

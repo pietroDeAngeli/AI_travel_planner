@@ -1,6 +1,12 @@
-# ===========================
-# Intent / Slot Schemas and functions
-# ===========================
+"""Schemas and definitions for the travel assistant.
+
+Centralizes:
+- Intent/slot schemas used by NLU and validation
+- Activity categories and budget levels
+- Dialogue-manager action catalog + validation helpers
+"""
+
+# --- Intents / slots ---
 
 INTENT_SCHEMAS = {
     "BOOK_FLIGHT": {
@@ -29,7 +35,13 @@ INTENT_SCHEMAS = {
         "rule": "User wants to compare features of two cities",
         "examples": ["Compare Paris and London for sightseeing", 
                      "Which is better for food, Rome or Barcelona?"]
-    },    
+    },
+    "END_DIALOGUE": {
+        "slots": [],
+        "description": "User wants to end the conversation",
+        "rule": "User says goodbye, thanks, or indicates they are done",
+        "examples": ["Goodbye", "Thanks, bye", "That's all", "I'm done", "Exit", "Quit", "Thank you"]
+    },
     "OOD": {
         "slots": [],
         "description": "Out of domain - request not supported",
@@ -102,8 +114,8 @@ SLOT_DESCRIPTIONS = {
     "num_passengers": "Number of travelers for the flight\n",
     
     # -------- BOOK_ACCOMMODATION --------
-    "check_in_date": "Hotel check-in date\n",
-    "check_out_date": "Hotel check-out date\n",
+    "check_in_date": "Hotel check-in date format YYYY-MM-DD\n",
+    "check_out_date": "Hotel check-out date format YYYY-MM-DD\n",
     "num_guests": "Number of guests staying\n",
     
     # -------- BOOK_ACTIVITY --------
@@ -143,9 +155,7 @@ def get_json_schema_hint(intent: str) -> dict:
         "slots": {slot: None for slot in slots},
     }
 
-# ===========================
-# Actions for Dialogue Manager
-# ===========================
+# --- Dialogue manager actions ---
 
 DM_ACTIONS = {
     # Slot collection
@@ -162,10 +172,6 @@ DM_ACTIONS = {
     "ASK_CONFIRMATION": {
         "description": "Confirm all collected information before completing a booking",
         "rule": "When all required slots are filled (missing_slots is empty) and the intent is not confirmed yet",
-    },
-    "HANDLE_DENIAL": {
-        "description": "Handle when user denies confirmation and wants to modify something",
-        "rule": "When user responds negatively to ASK_CONFIRMATION or OFFER_SLOT_CARRYOVER",
     },
     "REQUEST_SLOT_CHANGE": {
         "description": "Ask user which slot they want to change after negative confirmation",

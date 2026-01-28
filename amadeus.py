@@ -1,54 +1,115 @@
-
-BASE_URL = "https://test.api.amadeus.com"
+import os
+import time
 import requests
-from schema import ACTIVITY_CATEGORIES
+from typing import Optional, Tuple, List, Dict, Any
 
 from dotenv import load_dotenv
 load_dotenv()
 
-import os
+from schema import ACTIVITY_CATEGORIES
+
+BASE_URL = "https://test.api.amadeus.com"
 
 AMADEUS_API_KEY = os.getenv("AMADEUS_API_KEY")
 AMADEUS_API_SECRET = os.getenv("AMADEUS_API_SECRET")
 
-def search_flights():
-    return """Flight search not implemented yet."""
+# Cache for access token (token, expiry_time)
+_token_cache: Tuple[Optional[str], float] = (None, 0)
+
+# Cache for geocoded cities
+_geocode_cache: Dict[str, Tuple[float, float]] = {}
 
 
-def search_activities(city, radius_km=3, activity_type="cultural"):
-    token = get_access_token()
-    lat, lon = geocode_city(city)
-
-    url = f"{BASE_URL}/v1/shopping/activities"
-    headers = {
-        "Authorization": f"Bearer {token}"
-    }
-    params = {
-        "latitude": lat,
-        "longitude": lon,
-        "radius": radius_km
+def get_access_token() -> str:
+    """Get Amadeus access token with caching to avoid unnecessary API calls."""
+    global _token_cache
+    token, expiry = _token_cache
+    
+    # Return cached token if still valid (with 60s buffer)
+    if token and time.time() < expiry - 60:
+        return token
+    
+    url = f"{BASE_URL}/v1/security/oauth2/token"
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": AMADEUS_API_KEY,
+        "client_secret": AMADEUS_API_SECRET
     }
 
     try:
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.post(url, headers=headers, data=data, timeout=10)
         response.raise_for_status()
+        result = response.json()
+        token = result["access_token"]
+        expires_in = result.get("expires_in", 1800)  # Default 30 min
+        _token_cache = (token, time.time() + expires_in)
+        return token
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Failed to get access token: {e}")
 
+
+def geocode_city(city: str) -> Tuple[float, float]:
+    """Get latitude/longitude for a city with caching."""
+    city_lower = city.lower().strip()
+    
+    if city_lower in _geocode_cache:
+        return _geocode_cache[city_lower]
+    
+    url = "https://nominatim.openstreetmap.org/search"
+    params = {"q": city, "format": "json", "limit": 1}
+    headers = {"User-Agent": "travel-planner-demo"}
+
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"Geocoding request failed: {e}")
+
+    if not data:
+        raise ValueError(f"City not found: {city}")
+
+    lat, lon = float(data[0]["lat"]), float(data[0]["lon"])
+    _geocode_cache[city_lower] = (lat, lon)
+    return lat, lon
+
+def search_flights():
+    """Placeholder for flight search functionality."""
+    return "(You can invent the flight details)"
+
+
+def search_activities(city: str, radius_km: int = 3, activity_type: str = "cultural") -> List[Dict[str, Any]]:
+    """Search for activities in a city, sorted by preferred activity type."""
+    try:
+        token = get_access_token()
+        lat, lon = geocode_city(city)
+    except (RuntimeError, ValueError) as e:
+        print(f"[API] Setup failed: {e}")
+        return []
+
+    url = f"{BASE_URL}/v1/shopping/activities"
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"latitude": lat, "longitude": lon, "radius": radius_km}
+
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=15)
+        response.raise_for_status()
     except requests.exceptions.HTTPError as e:
-        print("HTTP error:", e.response.status_code)
-        print(e.response.text)
+        print(f"[API] HTTP error: {e.response.status_code} - {e.response.text}")
         return []
     except requests.exceptions.RequestException as e:
-        print("Request failed:", e)
+        print(f"[API] Request failed: {e}")
         return []
 
     activities = parse_activities(response.json())
-
-    # Sort categories by preferred activity
-    activities.sort(key=lambda a: (a["activity_type"] != activity_type, a["name"]))
-
+    # Sort by preferred activity type first, then by name
+    activities.sort(key=lambda a: (a["activity_type"] != activity_type, a["name"] or ""))
     return activities[:10]
 
-def compare_options(city1: str, city2: str, compare_type: str):
+
+def compare_options(city1: str, city2: str, compare_type: str) -> Tuple[List, List]:
+    """Compare activities between two cities for a given activity type."""
     if compare_type not in ACTIVITY_CATEGORIES:
         return [], []
     
@@ -56,142 +117,105 @@ def compare_options(city1: str, city2: str, compare_type: str):
     activities2 = search_activities(city2, activity_type=compare_type)
     return activities1, activities2
 
-def request_information(city: str, entity_type: str):
-    if entity_type not in ["hotels", "flights", "activities"]:
-        return []
 
-    if entity_type == "activities":
-        return search_activities(city)
-    elif entity_type == "hotels":
-        return search_accomodation(city)
-    else:
-        # Flights search not implemented
-        return []
-
-def classify_activity(name: str | None) -> str:
+def classify_activity(name: Optional[str]) -> str:
+    """Classify an activity name into a category based on keywords."""
     if not name:
         return "general"
 
-    name = name.lower()
+    name_lower = name.lower()
     for category, keywords in ACTIVITY_CATEGORIES.items():
-        if any(k in name for k in keywords):
+        if any(k in name_lower for k in keywords):
             return category
     return "general"
 
 
-def search_accomodation(city, radius_km=3, ratings="1,2,3,4,5", num_adults=1, start_date="YYYY-MM-DD", end_date="YYYY-MM-DD"):
-    token = get_access_token()
-    lat, lon = geocode_city(city)
+def search_accomodation(
+    city: str,
+    radius_km: int = 3,
+    ratings: str = "1,2,3,4,5",
+    num_adults: int = 1,
+    start_date: str = "YYYY-MM-DD",
+    end_date: str = "YYYY-MM-DD"
+) -> List[Dict[str, Any]]:
+    """Search for accommodation in a city with availability check."""
+    try:
+        token = get_access_token()
+        lat, lon = geocode_city(city)
+    except (RuntimeError, ValueError) as e:
+        print(f"[API] Setup failed: {e}")
+        return []
 
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Step 1: Get hotels by location
     url = f"{BASE_URL}/v1/reference-data/locations/hotels/by-geocode"
-    headers = {
-        "Authorization": f"Bearer {token}"
-    }
-
     params = {
         "latitude": lat,
         "longitude": lon,
         "radius": radius_km,
         "radiusUnit": "KM",
-        #"ratings": ratings
     }
 
     try:
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=15)
         response.raise_for_status()
-
     except requests.exceptions.HTTPError as e:
-        print("HTTP error:", e.response.status_code)
-        print(e.response.text)
+        print(f"[API] HTTP error (hotels list): {e.response.status_code}")
         return []
     except requests.exceptions.RequestException as e:
-        print("Request failed:", e)
+        print(f"[API] Request failed (hotels list): {e}")
         return []
 
     hotels = parse_hotels_list(response.json())
+    if not hotels:
+        return []
 
-    hotels.sort(key=lambda h: h["distance"])
-
+    hotels.sort(key=lambda h: h["distance"] or float('inf'))
     hotels = hotels[:10]
 
-    ids = [hotel["hotelId"] for hotel in hotels]
+    # Step 2: Get offers for those hotels
+    hotel_ids = [h["hotelId"] for h in hotels if h.get("hotelId")]
+    if not hotel_ids:
+        return []
 
     url = f"{BASE_URL}/v3/shopping/hotel-offers"
-
     params = {
-        "hotelIds": ids,
+        "hotelIds": hotel_ids,
         "adults": num_adults,
         "checkInDate": start_date,
         "checkOutDate": end_date,
         "roomQuantity": 1,
         "includeClosed": False,
         "lang": "EN",
-        #"paymentPolicy": "NONE",
-        #"boardType": "ROOM_ONLY",
     }
 
     try:
-        response = requests.get(url, headers=headers, params=params)
+        response = requests.get(url, headers=headers, params=params, timeout=15)
         response.raise_for_status()
-
     except requests.exceptions.HTTPError as e:
-        print("HTTP error:", e.response.status_code)
-        print(e.response.text)
-        return []
+        print(f"[API] HTTP error (hotel offers): {e.response.status_code}")
+        return hotels  # Return basic hotel info if offers fail
     except requests.exceptions.RequestException as e:
-        print("Request failed:", e)
-        return []
+        print(f"[API] Request failed (hotel offers): {e}")
+        return hotels
 
-    
     rooms = parse_hotels_search(response.json())
+    rooms_by_id = {r["hotelId"]: r for r in rooms if r.get("hotelId")}
 
-    rooms_by_id = {r["hotelId"]: r for r in rooms}
-
+    # Merge hotel info with room offers
     merged = [
         {**h, **rooms_by_id[h["hotelId"]]}
         for h in hotels
         if h["hotelId"] in rooms_by_id
     ]
 
-    return merged
+    return merged if merged else hotels
 
-def get_access_token():
-    url = f"{BASE_URL}/v1/security/oauth2/token"
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
-    data = {
-        "grant_type": "client_credentials",
-        "client_id": AMADEUS_API_KEY,
-        "client_secret": AMADEUS_API_SECRET
-    }
 
-    response = requests.post(url, headers=headers, data=data)
-    response.raise_for_status()
-
-    return response.json()["access_token"]
-
-def geocode_city(city):
-    url = "https://nominatim.openstreetmap.org/search"
-    params = {
-        "q": city,
-        "format": "json",
-        "limit": 1
-    }
-    headers = {"User-Agent": "travel-planner-demo"}
-
-    r = requests.get(url, params=params, headers=headers)
-    r.raise_for_status()
-    data = r.json()
-
-    if not data:
-        raise ValueError(f"City not found: {city}")
-
-    return float(data[0]["lat"]), float(data[0]["lon"])
-
-def parse_activities(data):
+def parse_activities(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Parse activities response from Amadeus API."""
     activities = []
-
     for a in data.get("data", []):
         activities.append({
             "name": a.get("name"),
@@ -201,47 +225,45 @@ def parse_activities(data):
             "currency": a.get("price", {}).get("currencyCode"),
             "activity_type": classify_activity(a.get("name"))
         })
-
     return activities
 
-def parse_hotels_list(data):
-    hotels = []
 
+def parse_hotels_list(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Parse hotels list response from Amadeus API."""
+    hotels = []
     for a in data.get("data", []):
         hotels.append({
             "name": a.get("name"),
             "hotelId": a.get("hotelId"),
             "distance": a.get("distance", {}).get("value")
-            #"unit": a.get("distance").get("value")
         })
-
     return hotels
 
-def parse_hotels_search(data):
+
+def parse_hotels_search(data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Parse hotel offers response from Amadeus API."""
     rooms = []
-
     for a in data.get("data", []):
-        obj = {}
-
         if not a.get("available", False):
             continue
 
-        # Hotel info
-        obj["hotelId"] = a.get("hotel", {}).get("hotelId")
-        obj["latitude"] = a.get("hotel", {}).get("latitude")
-        obj["longitude"] = a.get("hotel", {}).get("longitude")
-        obj["contact"] = a.get("hotel", {}).get("contact", {}).get("phone")
-
-        # Room info
+        hotel = a.get("hotel", {})
         offers = a.get("offers", [])
         offer = offers[0] if offers else {}
 
-        obj["price"] = offer.get("price", {}).get("total")
-        obj["currency"] = offer.get("price", {}).get("currency")
-        obj["description"] = offer.get("roomInformation", {}).get("description")
-        obj["boardType"] = offer.get("boardType")
-        obj["cancellationPolicy"] = offer.get("policies", {}).get("refundable", {}).get("cancellationRefund")
-        obj["paymentType"] = offer.get("policies", {}).get("paymentType")
-
+        obj = {
+            # Hotel info
+            "hotelId": hotel.get("hotelId"),
+            "latitude": hotel.get("latitude"),
+            "longitude": hotel.get("longitude"),
+            "contact": hotel.get("contact", {}).get("phone"),
+            # Room/offer info
+            "price": offer.get("price", {}).get("total"),
+            "currency": offer.get("price", {}).get("currency"),
+            "description": offer.get("room", {}).get("description", {}).get("text"),
+            "boardType": offer.get("boardType"),
+            "cancellationPolicy": offer.get("policies", {}).get("cancellation", {}).get("description", {}).get("text"),
+            "paymentType": offer.get("policies", {}).get("paymentType"),
+        }
         rooms.append(obj)
     return rooms

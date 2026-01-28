@@ -2,9 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, List
 from typing import Literal
 
-# =============================================================================
-# BOOKING DATA CLASSES
-# =============================================================================
+# --- Booking data classes ---
 @dataclass
 class FlightBooking:
     """Self-contained data for flight booking."""
@@ -103,9 +101,7 @@ class ActivityBooking:
         return any([self.destination, self.activity_category, self.budget_level])
 
 
-# =============================================================================
-# TRIP CONTEXT - Holds all bookings and enables slot carryover
-# =============================================================================
+# --- Trip context ---
 
 @dataclass
 class TripContext:
