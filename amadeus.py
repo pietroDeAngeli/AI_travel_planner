@@ -2,6 +2,7 @@ import os
 import time
 import requests
 from typing import Optional, Tuple, List, Dict, Any
+from datetime import date, timedelta, datetime
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -129,16 +130,39 @@ def classify_activity(name: Optional[str]) -> str:
             return category
     return "general"
 
+def validate_date(start_date: str, end_date: str) -> Tuple[str, str]:
+    today = date.today()
 
-def search_accomodation(
+    # Default handling
+    if start_date == "YYYY-MM-DD":
+        start_date_obj = today
+    else:
+        start_date_obj = datetime.strptime(start_date, "%Y-%m-%d").date()
+
+    if end_date == "YYYY-MM-DD":
+        end_date_obj = today + timedelta(days=1)
+    else:
+        end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+    # Logical correction
+    if start_date_obj >= end_date_obj:
+        start_date_obj = today
+        end_date_obj = today + timedelta(days=1)
+
+    return start_date_obj.isoformat(), end_date_obj.isoformat()
+
+def search_accommodation(
     city: str,
     radius_km: int = 3,
-    ratings: str = "1,2,3,4,5",
     num_adults: int = 1,
+    ratings: str = "5",
     start_date: str = "YYYY-MM-DD",
     end_date: str = "YYYY-MM-DD"
 ) -> List[Dict[str, Any]]:
     """Search for accommodation in a city with availability check."""
+    
+    start_date, end_date = validate_date(start_date, end_date)
+
     try:
         token = get_access_token()
         lat, lon = geocode_city(city)

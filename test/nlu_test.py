@@ -9,8 +9,8 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from llm import make_llm
-from nlu import nlu_parse, state_context
-from dm import DialogueState
+from nlu import nlu_parse
+from dm import DialogueState, state_context
 from schema import INTENT_SLOTS, INTENTS
 
 
@@ -326,7 +326,7 @@ TEST_DIALOGUES = [
         "name": "19_goodbye_simple",
         "history": [],
         "user": "goodbye",
-        "expect_intent": "GOODBYE",
+        "expect_intent": "END_DIALOGUE",
         "expect_slots": {},
         "purpose": "End: simple goodbye"
     },
@@ -336,7 +336,7 @@ TEST_DIALOGUES = [
             {"role": "assistant", "content": "Your flight is booked!"}
         ],
         "user": "Thanks, that's all I needed",
-        "expect_intent": "GOODBYE",
+        "expect_intent": "END_DIALOGUE",
         "expect_slots": {},
         "purpose": "End: thanks and closure"
     },

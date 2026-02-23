@@ -1,5 +1,37 @@
-from schema import DM_ACTIONS, parse_action, SLOT_DESCRIPTIONS
+from schema import DM_ACTIONS, parse_action, SLOT_DESCRIPTIONS, BUDGET_LEVELS, ACTIVITY_CATEGORIES
 from dm import DialogueState
+from typing import Dict, List, Optional
+
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+# --- Mixed Initiative: proactive suggestions for each slot ---
+
+POPULAR_DESTINATIONS = [
+    "Rome", "Paris", "Barcelona", "London", "Amsterdam",
+    "Prague", "Lisbon", "Vienna", "Berlin", "Athens"
+]
+
+MIXED_INITIATIVE_OPTIONS = {
+    # Common
+    "destination": f"Popular destinations: {', '.join(POPULAR_DESTINATIONS)}",
+    "budget_level": f"Available budget levels: {', '.join(BUDGET_LEVELS)}",
+    # Flight
+    "origin": f"Common departure cities: {', '.join(POPULAR_DESTINATIONS[:5])}",
+    "departure_date": "Tip: you can say things like 'next Friday', 'March 15th', or 'in two weeks'",
+    "return_date": "Tip: you can say 'one week later', a specific date, or 'one-way' if no return",
+    "num_passengers": "Usually 1-6 passengers for standard bookings",
+    # Accommodation
+    "check_in_date": "Tip: you can say a specific date like 'June 1st' or 'next Monday'",
+    "check_out_date": "Tip: you can say a specific date or a duration like '3 nights'",
+    "num_guests": "Usually 1-4 guests per room",
+    # Activity
+    "activity_category": f"Available categories: {', '.join(list(ACTIVITY_CATEGORIES.keys()))}",
+    "preferred_time": "Available times: morning, afternoon, evening, or a specific time like 10:00",
+    # Compare cities
+    "city1": f"Popular cities to compare: {', '.join(POPULAR_DESTINATIONS[:6])}",
+    "city2": f"Popular cities to compare: {', '.join(POPULAR_DESTINATIONS[:6])}",
+}
 
 GREETING_MESSAGE = """Hello! I'm your travel assistant. I can help you with:
 - Booking flights
@@ -11,10 +43,17 @@ How can I help you today?
 """
 
 
-def nlg_generate(pipe, action: str, state: DialogueState) -> str:
+def nlg_generate(
+    pipe,
+    action: str,
+    state: DialogueState,
+    dialogue_history: Optional[List[Dict[str, str]]] = None,
+) -> str:
     """
     NLG module: generates the surface utterance
     based on the DM action and dialogue state.
+    Optionally uses the last turn of dialogue_history for context-aware responses
+    (e.g. to apologize for mistakes or acknowledge corrections).
     """
     base_action, slot_param = parse_action(action)
     
@@ -45,19 +84,36 @@ def nlg_generate(pipe, action: str, state: DialogueState) -> str:
     messages = [
         {
             "role": "system",
-            "content": "You are a polite and helpful travel assistant. Be concise and friendly."
+            "content": (
+                "You are a polite and helpful travel assistant. Be concise and friendly.\n"
+                "Instead of simply requesting information, try to proactively suggest options "
+                "to make the conversation more engaging and help the user decide faster."
+            )
         },
-        {
-            "role": "user",
-            "content": prompt
-        }
     ]
 
-    out = pipe(
-        messages,
-        max_new_tokens=150,
-        do_sample=False,
-    )
+    # Inject the last turn from dialogue history for context-aware generation.
+    # This allows the NLG to produce more natural responses such as
+    # "I apologize for the confusion, I've updated the destination to Rome"
+    # instead of a generic "Got it, I've updated the destination to Rome".
+    if dialogue_history:
+        for turn in dialogue_history[-2:]:
+            messages.append({"role": turn["role"], "content": turn["content"]})
+
+    messages.append({
+        "role": "user",
+        "content": prompt
+    })
+
+    try:
+        out = pipe(
+            messages,
+            max_new_tokens=150,
+            do_sample=False,
+        )
+    except Exception as e:
+        logging.error(f"Error calling pipe: {e}")
+        return "I'm sorry, I'm having trouble generating a response right now."
 
     return out[0]["generated_text"][-1]["content"].strip()
 
@@ -77,17 +133,24 @@ def _prompt_request_missing_slot(state: DialogueState, slot_name: str = None) ->
         "BOOK_FLIGHT": "flight booking",
         "BOOK_ACCOMMODATION": "accommodation booking",
         "BOOK_ACTIVITY": "activity booking",
+        "COMPARE_CITIES": "city comparison",
     }.get(state.current_intent, "request")
+
+    # Mixed Initiative: get proactive suggestions for this slot
+    suggestions = MIXED_INITIATIVE_OPTIONS.get(slot, "")
+    suggestions_block = f"\nProactive suggestions to offer: {suggestions}" if suggestions else ""
 
     return f"""
 You are helping a user with their {intent_context}.
 
 Missing information needed: {slot}
-Description: {slot_description}
+Description: {slot_description}{suggestions_block}
 
-Ask for this information directly and politely. Start with a progress marker ("Great!", "Perfect!", "Almost there!") then ask the question.
+Instead of simply asking for the missing information, PROACTIVELY SUGGEST some of the available options to help the user decide.
+Start with a progress marker ("Great!", "Perfect!", "Almost there!") then ask the question while mentioning a few suggestions.
+For example, instead of "Where would you like to go?" say "Where would you like to go? Some popular choices are Rome, Paris, and Barcelona!"
 Do NOT use phrases like "just to confirm" or "to clarify".
-Keep it to ONE short sentence.
+Keep it to 1-2 short sentences.
 """
 
 

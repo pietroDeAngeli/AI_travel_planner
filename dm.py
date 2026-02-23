@@ -4,8 +4,81 @@ import copy
 import json
 import re
 
+from datetime import date
+
 from data import TripContext
-from schema import INTENTS, DM_ACTIONS, INTENT_SCHEMAS, build_dm_actions_prompt
+from schema import INTENTS, INTENT_SLOTS, RULES, DM_ACTIONS, INTENT_SCHEMAS, build_dm_actions_prompt
+
+_current_date = date.today().isoformat()
+
+# --- NLU prompt generation (state-aware) ---
+
+_sys_base_prompt = (
+    "You are an NLU module for a travel booking dialogue system.\n"
+    "Task: classify the user's intent and extract slot values.\n\n"
+    f"Valid intents: {INTENTS}\n\n"
+    f"Valid slots per intent: {INTENT_SLOTS}\n\n"
+    f"{RULES}\n\n"
+    "Output MUST be a single JSON object with keys: intent, slots\n"
+    "- Put null for unknown slots.\n"
+    "- Never invent details.\n"
+    "- Only include slots relevant to the detected intent.\n"
+    f"- Today is {_current_date}, keep it in mind so that you can correctly interpret temporal references.\n"
+)
+
+
+def _sys_confirmation_prompt(state: 'DialogueState') -> str:
+    """Generate confirmation prompt with state context."""
+    return (
+        "You are an NLU module for a travel booking dialogue system.\n"
+        "The system just asked for confirmation.\n\n"
+        f"Current intent: {state.current_intent}\n\n"
+        "Task: Determine if the user's response is positive or negative.\n"
+        "- Positive: yes, yeah, sure, okay, correct, right, confirm, proceed\n"
+        "- Negative: no, nope, wrong, change, modify, different\n\n"
+        f"Return the current intent with a 'confirmation' slot.\n"
+        "Output MUST be a single JSON object with keys: intent, slots\n"
+        f"Example positive: {{\"intent\": \"{state.current_intent}\", \"slots\": {{\"confirmation\": \"yes\"}}}}\n"
+        f"Example negative: {{\"intent\": \"{state.current_intent}\", \"slots\": {{\"confirmation\": \"no\"}}}}\n"
+    )
+
+
+def _sys_slot_change_prompt(state: 'DialogueState') -> str:
+    """Generate slot change prompt with state context."""
+    return (
+        "You are an NLU module for a travel booking dialogue system.\n"
+        "The user is indicating which slot/field they want to change.\n\n"
+        f"Current intent: {state.current_intent}\n"
+        f"Valid slots: {INTENT_SLOTS.get(state.current_intent, [])}\n\n"
+        "Task: Identify which slot name the user is referring to.\n"
+        "Map user's words to the actual slot name.\n"
+        "- 'destination' or 'city' or 'place' -> slot_name: 'destination'\n"
+        "- 'activity' or 'category' or 'type' -> slot_name: 'activity_category'\n"
+        "- 'budget' or 'price' -> slot_name: 'budget_level'\n"
+        "- 'check-in' or 'arrival' -> slot_name: 'check_in_date'\n"
+        "- 'check-out' or 'departure' -> slot_name: 'check_out_date'\n"
+        "- 'guests' or 'people' -> slot_name: 'num_guests'\n"
+        "- 'passengers' -> slot_name: 'num_passengers'\n"
+        "- 'origin' or 'from' -> slot_name: 'origin'\n"
+        "\nOutput MUST be a single JSON object with keys: intent, slots\n"
+        f"Example if user says 'the destination': {{\"intent\": \"{state.current_intent}\", \"slots\": {{\"slot_name\": \"destination\"}}}}\n"
+        f"Example if user says 'budget': {{\"intent\": \"{state.current_intent}\", \"slots\": {{\"slot_name\": \"budget_level\"}}}}\n"
+        f"- Today is {_current_date}, keep it in mind so that you can correctly interpret temporal references.\n"
+    )
+
+
+def state_context(state: 'DialogueState') -> str:
+    """Generate a context-aware NLU system prompt based on dialogue state."""
+    if not state.last_action:
+        return _sys_base_prompt
+
+    if state.last_action in ["ASK_CONFIRMATION", "OFFER_SLOT_CARRYOVER"]:
+        return _sys_confirmation_prompt(state)
+
+    if state.last_action == "REQUEST_SLOT_CHANGE":
+        return _sys_slot_change_prompt(state)
+
+    return _sys_base_prompt
 
 
 # --- State ---
@@ -77,6 +150,18 @@ class DialogueState:
 
 # --- Shared helpers ---
 
+def _normalize_yes_no(value: Any) -> Optional[str]:
+    """Normalize confirmation values to 'yes', 'no', or None."""
+    if value is None:
+        return None
+    v = str(value).strip().lower()
+    if v in {"yes", "y", "si", "sì", "sure", "yeah", "okay", "ok", "true", "correct", "right", "confirm", "proceed"}:
+        return "yes"
+    if v in {"no", "n", "nope", "false", "wrong", "change", "modify", "different"}:
+        return "no"
+    return None
+
+
 def _get_complete_action(intent: str) -> str:
     """Get the completion action for an intent."""
     mapping = {
@@ -85,17 +170,6 @@ def _get_complete_action(intent: str) -> str:
         "BOOK_ACTIVITY": "COMPLETE_ACTIVITY_BOOKING",
     }
     return mapping.get(intent, "ASK_CLARIFICATION")
-
-
-def _normalize_yes_no(value: Any) -> Optional[str]:
-    if value is None:
-        return None
-    v = str(value).strip().lower()
-    if v in {"yes", "y", "si", "sì", "true"}:
-        return "yes"
-    if v in {"no", "n", "false"}:
-        return "no"
-    return None
 
 
 def _update_state_with_nlu(state: DialogueState, nlu_output: Dict[str, Any]) -> None:
@@ -170,10 +244,9 @@ def _extract_assistant_response(outputs: Any) -> str:
 def dm_decide_rule_based(
     state: DialogueState,
     nlu_output: Dict[str, Any],
-    user_utterance: str = "",
 ) -> str:
     """
-    Deterministic DM (reference behavior). Good for regression tests.
+    Deterministic DM.
     """
     intent = nlu_output.get("intent")
     slots = nlu_output.get("slots", {}) or {}
@@ -210,28 +283,25 @@ def dm_decide_rule_based(
             return state.last_action
 
         state.last_action = "COMPARE_CITIES_RESULT"
-        return "COMPARE_CITIES_RESULT"
+        return state.last_action
 
     # 4) If we were waiting for confirmation
     if state.last_action == "ASK_CONFIRMATION":
         conf = _normalize_yes_no(slots.get("confirmation"))
         if conf == "no":
             state.last_action = "REQUEST_SLOT_CHANGE"
-            return "REQUEST_SLOT_CHANGE"
-        if conf == "yes":
+            return state.last_action
+        elif conf == "yes":
             state.confirmed = True
             action = _get_complete_action(state.current_intent)
             state.context.mark_completed(state.current_intent)
             state.last_action = action
             return action
-        return "ASK_CONFIRMATION"
+        return state.last_action # Remains ASK_CONFIRMATION if unclear
 
     # 5) Carryover offer response
     if state.last_action == "OFFER_SLOT_CARRYOVER":
         conf = _normalize_yes_no(slots.get("confirmation"))
-        if conf is None:
-            state.last_action = "OFFER_SLOT_CARRYOVER"
-            return "OFFER_SLOT_CARRYOVER"
         if conf == "yes":
             if state.pending_carryover:
                 booking = state.get_current_booking()
@@ -241,10 +311,13 @@ def dm_decide_rule_based(
                             setattr(booking, k, v)
             state.pending_carryover = None
             state.awaiting_carryover_response = False
+            # Fall through to slot-checking below
         elif conf == "no":
             state.pending_carryover = None
             state.awaiting_carryover_response = False
-        # continue flow
+            # Fall through to slot-checking below
+        else:
+            return state.last_action  # Remains OFFER_SLOT_CARRYOVER if unclear
 
     # 6) Slot change
     if state.last_action == "REQUEST_SLOT_CHANGE":
@@ -256,8 +329,7 @@ def dm_decide_rule_based(
                 action = f"REQUEST_MISSING_SLOT({slot_to_change})"
                 state.last_action = action
                 return action
-        state.last_action = "REQUEST_SLOT_CHANGE"
-        return "REQUEST_SLOT_CHANGE"
+        return state.last_action
 
     # Update state now
     _update_state_with_nlu(state, nlu_output)
@@ -512,8 +584,7 @@ def _apply_action_side_effects(
     if state.last_action == "OFFER_SLOT_CARRYOVER":
         conf = _normalize_yes_no(slots.get("confirmation"))
         if conf is None:
-            conf = meta.get("inferred_confirmation")
-        conf = conf if conf in ("yes", "no") else None
+            conf = _normalize_yes_no(meta.get("inferred_confirmation"))
 
         if conf == "yes":
             if state.pending_carryover:
@@ -584,13 +655,13 @@ def _validate_and_correct_action(
     )
     if action == "REQUEST_SLOT_CHANGE" and not can_request_slot_change:
         # Prefer continuing the normal flow deterministically
-        return dm_decide_rule_based(state, nlu_output, "")
+        return dm_decide_rule_based(state, nlu_output)
 
     # Validate REQUEST_MISSING_SLOT(slot)
     if action.startswith("REQUEST_MISSING_SLOT("):
         m = re.match(r"REQUEST_MISSING_SLOT\((\w+)\)", action)
         if not m:
-            return dm_decide_rule_based(state, nlu_output, "")
+            return dm_decide_rule_based(state, nlu_output)
         slot_name = m.group(1)
 
         allowed = set((state_after.get("missing_slots") or []))
@@ -599,7 +670,7 @@ def _validate_and_correct_action(
 
         # If allowed list is empty, don't over-restrict
         if allowed and slot_name not in allowed:
-            return dm_decide_rule_based(state, nlu_output, "")
+            return dm_decide_rule_based(state, nlu_output)
 
     return action
 
@@ -619,7 +690,7 @@ def dm_decide(
     - Added gating to reduce REQUEST_SLOT_CHANGE false positives and enforce carryover offering.
     """
     if llm_pipe is None:
-        return dm_decide_rule_based(state, nlu_output, user_utterance)
+        return dm_decide_rule_based(state, nlu_output)
 
     # BEFORE snapshot
     state_before = state.to_summary()
@@ -676,7 +747,7 @@ def dm_decide(
 
     # If LLM output is weak/invalid, fallback to rule-based
     if action == "ASK_CLARIFICATION":
-        action = dm_decide_rule_based(state, nlu_output, user_utterance)
+        action = dm_decide_rule_based(state, nlu_output)
         meta = {}
 
     # Enforce suggested gating/corrections

@@ -4,14 +4,15 @@ from transformers import pipeline, AutoTokenizer
 MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 #MODEL_ID = "Qwen/Qwen2.5-1.5B-Instruct"
 
-def make_llm(model_id: str = MODEL_ID):
+def make_llm():
+    model_id: str = MODEL_ID
     print( "Cuda available:",torch.cuda.is_available())
     dtype = torch.bfloat16 if torch.cuda.is_available() else torch.float32
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     
     pipe = None
 
-    if "meta-llama" in MODEL_ID:
+    if "meta-llama" in model_id:
       import os
       # Llama model
 

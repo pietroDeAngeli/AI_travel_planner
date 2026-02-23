@@ -1,105 +1,61 @@
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, List
-from typing import Literal
+from dataclasses import dataclass, field, fields
+from typing import Any, ClassVar, Dict, Optional, List, Literal
+
+# --- Base booking data class ---
+@dataclass
+class BaseBooking:
+    completed: bool = False
+    _required_slots: ClassVar[List[str]] = []
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {f.name: getattr(self, f.name) for f in fields(self)}
+
+    def missing_slots(self) -> List[str]:
+        return [s for s in self._required_slots if getattr(self, s, None) is None]
+
+    def update(self, slots: Dict[str, Any]) -> None:
+        for key, value in slots.items():
+            if hasattr(self, key) and value is not None:
+                setattr(self, key, value)
+
+    def has_any_data(self) -> bool:
+        return any(getattr(self, f.name) for f in fields(self) 
+                   if f.name != 'completed')
 
 # --- Booking data classes ---
 @dataclass
-class FlightBooking:
+class FlightBooking(BaseBooking):
     """Self-contained data for flight booking."""
+    _required_slots: ClassVar[List[str]] = ["origin", "destination", "departure_date", "num_passengers", "budget_level"]
+
     origin: Optional[str] = None
     destination: Optional[str] = None
     departure_date: Optional[str] = None
     return_date: Optional[str] = None
     num_passengers: Optional[int] = None
     budget_level: Optional[Literal["low", "medium", "high"]] = None
-    completed: bool = False
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "origin": self.origin,
-            "destination": self.destination,
-            "departure_date": self.departure_date,
-            "return_date": self.return_date,
-            "num_passengers": self.num_passengers,
-            "budget_level": self.budget_level,
-            "completed": self.completed,
-        }
-
-    def missing_slots(self) -> List[str]:
-        required = ["origin", "destination", "departure_date", "num_passengers", "budget_level"]
-        return [s for s in required if getattr(self, s, None) is None]
-
-    def update(self, slots: Dict[str, Any]) -> None:
-        for key, value in slots.items():
-            if hasattr(self, key) and value is not None:
-                setattr(self, key, value)
-
-    def has_any_data(self) -> bool:
-        return any([self.origin, self.destination, self.departure_date, 
-                    self.return_date, self.num_passengers, self.budget_level])
 
 
 @dataclass
-class AccommodationBooking:
+class AccommodationBooking(BaseBooking):
     """Self-contained data for accommodation booking."""
+    _required_slots: ClassVar[List[str]] = ["destination", "check_in_date", "check_out_date", "num_guests", "budget_level"]
+
     destination: Optional[str] = None
     check_in_date: Optional[str] = None
     check_out_date: Optional[str] = None
     num_guests: Optional[int] = None
     budget_level: Optional[Literal["low", "medium", "high"]] = None
-    completed: bool = False
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "destination": self.destination,
-            "check_in_date": self.check_in_date,
-            "check_out_date": self.check_out_date,
-            "num_guests": self.num_guests,
-            "budget_level": self.budget_level,
-            "completed": self.completed,
-        }
-
-    def missing_slots(self) -> List[str]:
-        required = ["destination", "check_in_date", "check_out_date", "num_guests", "budget_level"]
-        return [s for s in required if getattr(self, s, None) is None]
-
-    def update(self, slots: Dict[str, Any]) -> None:
-        for key, value in slots.items():
-            if hasattr(self, key) and value is not None:
-                setattr(self, key, value)
-
-    def has_any_data(self) -> bool:
-        return any([self.destination, self.check_in_date, self.check_out_date, self.num_guests, self.budget_level])
-
 
 @dataclass
-class ActivityBooking:
+class ActivityBooking(BaseBooking):
     """Self-contained data for activity booking."""
+    _required_slots: ClassVar[List[str]] = ["destination", "activity_category", "budget_level", "preferred_time"]
+
     destination: Optional[str] = None
     activity_category: Optional[str] = None
     budget_level: Optional[Literal["low", "medium", "high"]] = None
-    completed: bool = False
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "destination": self.destination,
-            "activity_category": self.activity_category,
-            "budget_level": self.budget_level,
-            "completed": self.completed,
-        }
-
-    def missing_slots(self) -> List[str]:
-        required = ["destination", "activity_category", "budget_level"]
-        return [s for s in required if getattr(self, s, None) is None]
-
-    def update(self, slots: Dict[str, Any]) -> None:
-        for key, value in slots.items():
-            if hasattr(self, key) and value is not None:
-                setattr(self, key, value)
-
-    def has_any_data(self) -> bool:
-        return any([self.destination, self.activity_category, self.budget_level])
-
+    preferred_time: Optional[str] = None
 
 # --- Trip context ---
 

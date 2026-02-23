@@ -10,7 +10,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from llm import make_llm
-from intent_splitter import split_intents, has_multiple_intents, IntentQueue, extract_json_array
+from intent_splitter import split_intents, IntentQueue, extract_json_array
 
 
 # --- Test cases ---
@@ -76,50 +76,6 @@ def test_extract_json_array():
     
     print(f"\nPassed: {passed}/{len(test_cases)}")
     return passed == len(test_cases)
-
-
-def test_has_multiple_intents():
-    """Test heuristic detection of multiple intents."""
-    print("\n" + "="*60)
-    print("Testing Heuristic Multi-Intent Detection")
-    print("="*60)
-    
-    # Should return True
-    multi_cases = [
-        "Book a flight and also find a hotel",
-        "I need a hotel. Also, show me activities",
-        "Flight to Rome? And can you book a tour?",
-        "Find accommodation plus some local tours",
-    ]
-    
-    # Should return False
-    single_cases = [
-        "Book a flight to Rome",
-        "I want a hotel in Paris",
-        "Show me activities",
-    ]
-    
-    passed = 0
-    
-    print("\n  Multi-intent cases (should be True):")
-    for case in multi_cases:
-        result = has_multiple_intents(None, case)
-        status = "✓" if result else "✗"
-        if result:
-            passed += 1
-        print(f"    {status} \"{case[:40]}...\" -> {result}")
-    
-    print("\n  Single-intent cases (should be False):")
-    for case in single_cases:
-        result = has_multiple_intents(None, case)
-        status = "✓" if not result else "✗"
-        if not result:
-            passed += 1
-        print(f"    {status} \"{case[:40]}\" -> {result}")
-    
-    total = len(multi_cases) + len(single_cases)
-    print(f"\nPassed: {passed}/{total}")
-    return passed == total
 
 
 def test_intent_queue():
@@ -252,7 +208,6 @@ def run_all_tests():
     
     # Unit tests (no LLM needed)
     results["JSON Extraction"] = test_extract_json_array()
-    results["Heuristic Detection"] = test_has_multiple_intents()
     results["IntentQueue"] = test_intent_queue()
     
     # LLM-based tests

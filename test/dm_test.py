@@ -607,7 +607,6 @@ def run_dm_tests(use_llm: bool = True):
         expected_action = dm_decide_rule_based(
             state_rule,
             tc.nlu_output,
-            tc.user_utterance
         )
         
         # Get LLM-based DM action
@@ -623,7 +622,6 @@ def run_dm_tests(use_llm: bool = True):
             got_action = dm_decide_rule_based(
                 state_llm,
                 tc.nlu_output,
-                tc.user_utterance
             )
         
         # Compare actions

@@ -1,11 +1,14 @@
 from llm import make_llm
-from nlu import nlu_parse, state_context
-from dm import DialogueState, dm_decide
+from nlu import nlu_parse
+from dm import DialogueState, dm_decide, state_context
 from nlg import nlg_generate, GREETING_MESSAGE
 from schema import parse_action
-from amadeus import search_activities, search_accomodation
-from intent_splitter import split_intents, has_multiple_intents, IntentQueue
+from amadeus import search_activities, search_accommodation
+from intent_splitter import split_intents, IntentQueue
 import argparse
+
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
 class Color:
     RESET = "\033[0m"
@@ -14,18 +17,22 @@ class Color:
     YELLOW = "\033[93m"
     BLUE = "\033[94m"
 
-def update_state_after_action(state: DialogueState, action: str, api_results=None):
-    """Update state after an action (e.g., mark booking completed)."""
-    base_action, _ = parse_action(action)
-    
-    if base_action in ["COMPLETE_FLIGHT_BOOKING", "COMPLETE_ACCOMMODATION_BOOKING", "COMPLETE_ACTIVITY_BOOKING"]:
-        if state.current_intent:
-            state.context.mark_completed(state.current_intent)
-            if api_results:
-                pass
-    
-    if base_action == "GOODBYE":
-        pass
+def _is_flow_idle(state: DialogueState) -> bool:
+    """
+    Check if the current dialogue flow is idle (no active slot-filling in progress).
+    Returns True when it's safe to inject a queued intent.
+    """
+    # No active intent — idle
+    if state.current_intent is None:
+        return True
+    # Last action was a completion or result — flow just finished
+    if state.last_action in (
+        "COMPLETE_FLIGHT_BOOKING", "COMPLETE_ACCOMMODATION_BOOKING",
+        "COMPLETE_ACTIVITY_BOOKING", "COMPARE_CITIES_RESULT",
+        "GOODBYE", None,
+    ):
+        return True
+    return False
 
 
 def run(debug: bool = False, use_splitter: bool = True, use_llm_dm: bool = True):
@@ -50,29 +57,39 @@ def run(debug: bool = False, use_splitter: bool = True, use_llm_dm: bool = True)
     print(f"{Color.BLUE}{GREETING_MESSAGE}{Color.RESET}")
 
     while True:
-        user = input(f"{Color.YELLOW}YOU: {Color.RESET}").strip()
-        if not user:
-            continue
+        # --- Determine input for this turn ---
+        # If there's a queued intent AND current booking flow is done, auto-process it.
+        # Otherwise, always wait for user input.
+        processing_queued = False
 
-        # Intent splitting
-        if use_splitter:
-            if intent_queue.has_pending():
-                current_input = intent_queue.pop()
-                if debug:
-                    print(f"{Color.GREEN}[SPLIT] Processing queued intent: {current_input}{Color.RESET}")
-            else:
-                if has_multiple_intents(pipe, user):
-                    current_input, pending = split_intents(pipe, user)
-                    if pending:
-                        intent_queue.add(pending)
-                        if debug:
-                            print(f"{Color.GREEN}[SPLIT] Detected {len(pending) + 1} intents{Color.RESET}")
-                            print(f"{Color.GREEN}[SPLIT] Processing: {current_input}{Color.RESET}")
-                            print(f"{Color.GREEN}[SPLIT] Queued: {pending}{Color.RESET}")
-                else:
-                    current_input = user
+        if (use_splitter
+            and intent_queue.has_pending()
+            and _is_flow_idle(state)):
+            # Auto-process next queued intent
+            current_input = intent_queue.pop()
+            processing_queued = True
+            if debug:
+                print(f"{Color.GREEN}[SPLIT] Auto-processing queued intent: {current_input}{Color.RESET}")
+            # Show user what we're processing
+            print(f"{Color.BLUE}BOT: Now let me help you with: \"{current_input}\"{Color.RESET}\n")
         else:
-            current_input = user
+            user = input(f"{Color.YELLOW}YOU: {Color.RESET}").strip()
+            if not user:
+                continue
+
+            # Intent splitting: only on fresh user input, not during active booking
+            if use_splitter and _is_flow_idle(state):
+                current_input, pending = split_intents(pipe, user)
+                if pending:
+                    intent_queue.add(pending)
+                    if debug:
+                        print(f"{Color.GREEN}[SPLIT] Detected {len(pending) + 1} intents{Color.RESET}")
+                        print(f"{Color.GREEN}[SPLIT] Processing: {current_input}{Color.RESET}")
+                        print(f"{Color.GREEN}[SPLIT] Queued: {pending}{Color.RESET}")
+            else:
+                # During active booking flow, user input goes directly to NLU
+                # If user says something that cancels/overrides, clear the queue
+                current_input = user
 
         # DST
         system_prompt = state_context(state)
@@ -116,7 +133,7 @@ def run(debug: bool = False, use_splitter: bool = True, use_llm_dm: bool = True)
                 }.get(budget, "3,4")
                 
                 try:
-                    api_results = search_accomodation(
+                    api_results = search_accommodation(
                         city=accommodation.destination,
                         ratings=ratings,
                         num_adults=adults,
@@ -146,11 +163,8 @@ def run(debug: bool = False, use_splitter: bool = True, use_llm_dm: bool = True)
         if base_action == "COMPLETE_ACCOMMODATION_BOOKING" and isinstance(api_results, list):
             api_results = api_results[:1]
 
-        # State update
-        update_state_after_action(state, action, api_results)
-
         # NLG
-        response = nlg_generate(pipe, action, state)
+        response = nlg_generate(pipe, action, state, dialogue_history=history)
         
         if api_results and base_action in ["COMPLETE_ACCOMMODATION_BOOKING", "COMPLETE_ACTIVITY_BOOKING"]:
             if isinstance(api_results, list) and len(api_results) > 0:
@@ -165,9 +179,17 @@ def run(debug: bool = False, use_splitter: bool = True, use_llm_dm: bool = True)
                         results_summary += f"{i}. {name} - {price}\n"
                 response += results_summary
         
-        if intent_queue.has_pending():
+        # Notify user about pending intents after completing a booking
+        if intent_queue.has_pending() and base_action in (
+            "COMPLETE_FLIGHT_BOOKING", "COMPLETE_ACCOMMODATION_BOOKING",
+            "COMPLETE_ACTIVITY_BOOKING", "COMPARE_CITIES_RESULT",
+        ):
             next_intent = intent_queue.peek()
-            response += f"\n\n(I also noticed you mentioned: \"{next_intent}\" - I'll help with that next!)"
+            response += f"\n\nI also noted your earlier request: \"{next_intent}\". I'll handle that next!"
+
+        # If user ends dialogue, clear the queue
+        if base_action == "GOODBYE":
+            intent_queue.clear()
 
         if debug:
             if api_results:
@@ -175,7 +197,10 @@ def run(debug: bool = False, use_splitter: bool = True, use_llm_dm: bool = True)
             print("----------------------------------------------------------")
 
         # History
-        history.append({"role": "user", "content": user})
+        if not processing_queued:
+            history.append({"role": "user", "content": current_input})
+        else:
+            history.append({"role": "user", "content": f"[auto-queued] {current_input}"})
         history.append({"role": "assistant", "content": response})
 
         print(f"{Color.BLUE}BOT: {response}{Color.RESET}\n")

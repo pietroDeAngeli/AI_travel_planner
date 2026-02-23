@@ -28,8 +28,8 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from llm import make_llm
-from nlu import nlu_parse, state_context
-from dm import DialogueState, dm_decide, dm_decide_rule_based
+from nlu import nlu_parse
+from dm import DialogueState, dm_decide, dm_decide_rule_based, state_context
 from nlg import nlg_generate
 from intent_splitter import split_intents, has_multiple_intents, IntentQueue
 from schema import (
@@ -884,7 +884,7 @@ class PipelineEvaluator:
             if self.use_llm_dm:
                 action = dm_decide(state, nlu_output, current_input, llm_pipe=self.pipe)
             else:
-                action = dm_decide_rule_based(state, nlu_output, current_input)
+                action = dm_decide_rule_based(state, nlu_output)
             
             # Evaluate DM action
             dm_total += 1
