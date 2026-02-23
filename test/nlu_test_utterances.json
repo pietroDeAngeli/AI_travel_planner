@@ -1,0 +1,1925 @@
+[
+  {
+    "id": "FLIGHT_01_single_origin",
+    "test_focus": "Single slot extraction - origin only",
+    "information_type": "under_informative",
+    "utterance": "I need a flight from Milan",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {"origin": "Milan"}
+    }
+  },
+  {
+    "id": "FLIGHT_02_single_destination",
+    "test_focus": "Single slot extraction - destination only",
+    "information_type": "under_informative",
+    "utterance": "Flight to Paris",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {"destination": "Paris"}
+    }
+  },
+  {
+    "id": "FLIGHT_03_single_date",
+    "test_focus": "Single slot extraction - departure date",
+    "information_type": "under_informative",
+    "utterance": "Leaving June 10 2025",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {"departure_date": "2025-06-10"}
+    }
+  },
+  {
+    "id": "FLIGHT_04_single_passengers",
+    "test_focus": "Single slot extraction - passengers only",
+    "information_type": "under_informative",
+    "utterance": "We are 3 people",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {"num_passengers": "3"}
+    }
+  },
+  {
+    "id": "FLIGHT_05_single_budget",
+    "test_focus": "Single slot extraction - budget only",
+    "information_type": "under_informative",
+    "utterance": "Looking for a cheap flight",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {"budget_level": "low"}
+    }
+  },
+
+  {
+    "id": "FLIGHT_06_origin_destination",
+    "test_focus": "Dual slot extraction - origin and destination",
+    "information_type": "partial",
+    "utterance": "Book a flight from Rome to Berlin",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {"origin": "Rome", "destination": "Berlin"}
+    }
+  },
+  {
+    "id": "FLIGHT_07_destination_date",
+    "test_focus": "Dual slot extraction - destination and date",
+    "information_type": "partial",
+    "utterance": "I want to go to London on July 5 2025",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {"destination": "London", "departure_date": "2025-07-05"}
+    }
+  },
+  {
+    "id": "FLIGHT_08_origin_passengers",
+    "test_focus": "Dual slot extraction - origin and passengers",
+    "information_type": "partial",
+    "utterance": "Flying from Madrid with 2 people",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {"origin": "Madrid", "num_passengers": "2"}
+    }
+  },
+  {
+    "id": "FLIGHT_09_destination_budget",
+    "test_focus": "Dual slot extraction - destination and budget",
+    "information_type": "partial",
+    "utterance": "High budget trip to Vienna",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {"destination": "Vienna", "budget_level": "high"}
+    }
+  },
+  {
+    "id": "FLIGHT_10_round_trip_partial",
+    "test_focus": "Return date extraction without departure",
+    "information_type": "partial",
+    "utterance": "Returning August 20 2025 from Paris",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {"origin": "Paris", "return_date": "2025-08-20"}
+    }
+  },
+
+  {
+    "id": "FLIGHT_11_three_slots_basic",
+    "test_focus": "Origin, destination and passengers",
+    "information_type": "over_informative",
+    "utterance": "Three of us flying from Lisbon to Madrid",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "Lisbon",
+        "destination": "Madrid",
+        "num_passengers": "3"
+      }
+    }
+  },
+  {
+    "id": "FLIGHT_12_three_slots_with_date",
+    "test_focus": "Origin, destination and departure date",
+    "information_type": "over_informative",
+    "utterance": "Flight from Berlin to Rome June 15 2025",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "Berlin",
+        "destination": "Rome",
+        "departure_date": "2025-06-15"
+      }
+    }
+  },
+  {
+    "id": "FLIGHT_13_destination_date_budget",
+    "test_focus": "Destination, date and budget",
+    "information_type": "over_informative",
+    "utterance": "Cheap flight to Prague October 5 2025",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "destination": "Prague",
+        "departure_date": "2025-10-05",
+        "budget_level": "low"
+      }
+    }
+  },
+  {
+    "id": "FLIGHT_14_origin_date_passengers",
+    "test_focus": "Origin, date and passengers",
+    "information_type": "over_informative",
+    "utterance": "Leaving Barcelona July 14 2025 with 4 people",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "Barcelona",
+        "departure_date": "2025-07-14",
+        "num_passengers": "4"
+      }
+    }
+  },
+  {
+    "id": "FLIGHT_15_multi_slot_budget",
+    "test_focus": "Origin, destination and budget",
+    "information_type": "over_informative",
+    "utterance": "Medium budget flight from Zurich to Amsterdam",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "Zurich",
+        "destination": "Amsterdam",
+        "budget_level": "medium"
+      }
+    }
+  },
+
+  {
+    "id": "FLIGHT_16_full_round_trip",
+    "test_focus": "Full extraction including return and passengers",
+    "information_type": "full",
+    "utterance": "Book a flight from Boston to Chicago May 2 2025 returning May 10 2025 for 2 people",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "Boston",
+        "destination": "Chicago",
+        "departure_date": "2025-05-02",
+        "return_date": "2025-05-10",
+        "num_passengers": "2"
+      }
+    }
+  },
+  {
+    "id": "FLIGHT_17_full_with_budget",
+    "test_focus": "Full extraction including budget",
+    "information_type": "full",
+    "utterance": "High budget round trip from London to Rome June 1 2025 returning June 8 2025",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "London",
+        "destination": "Rome",
+        "departure_date": "2025-06-01",
+        "return_date": "2025-06-08",
+        "budget_level": "high"
+      }
+    }
+  },
+  {
+    "id": "FLIGHT_18_full_multi_passengers",
+    "test_focus": "Full extraction with multiple passengers",
+    "information_type": "full",
+    "utterance": "We are 4 flying from Paris to Lisbon July 14 2025 returning July 21 2025",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "Paris",
+        "destination": "Lisbon",
+        "departure_date": "2025-07-14",
+        "return_date": "2025-07-21",
+        "num_passengers": "4"
+      }
+    }
+  },
+  {
+    "id": "FLIGHT_19_full_medium_budget",
+    "test_focus": "Full extraction medium budget",
+    "information_type": "full",
+    "utterance": "Medium budget trip from Lisbon to Paris December 10 2025 returning December 15 2025",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "Lisbon",
+        "destination": "Paris",
+        "departure_date": "2025-12-10",
+        "return_date": "2025-12-15",
+        "budget_level": "medium"
+      }
+    }
+  },
+  {
+    "id": "FLIGHT_20_full_with_all_slots",
+    "test_focus": "All slots including passengers and budget",
+    "information_type": "full",
+    "utterance": "Low budget flight from Milan to Athens September 12 2025 returning September 20 2025 for 2 people",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "Milan",
+        "destination": "Athens",
+        "departure_date": "2025-09-12",
+        "return_date": "2025-09-20",
+        "num_passengers": "2",
+        "budget_level": "low"
+      }
+    }
+  },
+
+  {
+    "id": "FLIGHT_21_noisy_informal",
+    "test_focus": "Robustness to informal phrasing",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Gotta head from Milan over to Paris June 10 2025, just me",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "Milan",
+        "destination": "Paris",
+        "departure_date": "2025-06-10",
+        "num_passengers": "1"
+      }
+    }
+  },
+  {
+    "id": "FLIGHT_22_noisy_budget",
+    "test_focus": "Informal budget wording",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Need something super cheap from Rome to Berlin May 4 2025",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "Rome",
+        "destination": "Berlin",
+        "departure_date": "2025-05-04",
+        "budget_level": "low"
+      }
+    }
+  },
+  {
+    "id": "FLIGHT_23_noisy_passenger_wording",
+    "test_focus": "Passengers expressed informally",
+    "information_type": "noisy_paraphrase",
+    "utterance": "It's me and two friends flying from Zurich to Madrid July 18 2025",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "Zurich",
+        "destination": "Madrid",
+        "departure_date": "2025-07-18",
+        "num_passengers": "3"
+      }
+    }
+  },
+  {
+    "id": "FLIGHT_24_noisy_location_expression",
+    "test_focus": "Origin expressed as departure phrasing",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Flying out of Boston to Los Angeles November 3 2025",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "Boston",
+        "destination": "Los Angeles",
+        "departure_date": "2025-11-03"
+      }
+    }
+  },
+  {
+    "id": "FLIGHT_25_noisy_round_trip",
+    "test_focus": "Colloquial round trip expression",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Going from Berlin to Vienna August 9 2025 and back August 16 2025",
+    "ground_truth": {
+      "intent": "BOOK_FLIGHT",
+      "slots": {
+        "origin": "Berlin",
+        "destination": "Vienna",
+        "departure_date": "2025-08-09",
+        "return_date": "2025-08-16"
+      }
+    }
+  },
+  {
+    "id": "ACC_01_single_destination",
+    "test_focus": "Single slot extraction - destination only",
+    "information_type": "under_informative",
+    "utterance": "I need a hotel in Rome",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {"destination": "Rome"}
+    }
+  },
+  {
+    "id": "ACC_02_single_checkin",
+    "test_focus": "Single slot extraction - check-in date",
+    "information_type": "under_informative",
+    "utterance": "Check in June 10 2025",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {"check_in_date": "2025-06-10"}
+    }
+  },
+  {
+    "id": "ACC_03_single_checkout",
+    "test_focus": "Single slot extraction - check-out date",
+    "information_type": "under_informative",
+    "utterance": "Checking out July 5 2025",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {"check_out_date": "2025-07-05"}
+    }
+  },
+  {
+    "id": "ACC_04_single_guests",
+    "test_focus": "Single slot extraction - number of guests",
+    "information_type": "under_informative",
+    "utterance": "Room for 3 people",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {"num_guests": "3"}
+    }
+  },
+  {
+    "id": "ACC_05_single_budget",
+    "test_focus": "Single slot extraction - budget level",
+    "information_type": "under_informative",
+    "utterance": "Looking for a cheap place",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {"budget_level": "low"}
+    }
+  },
+
+  {
+    "id": "ACC_06_destination_checkin",
+    "test_focus": "Dual slot extraction - destination and check-in",
+    "information_type": "partial",
+    "utterance": "Hotel in Paris from July 10 2025",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Paris",
+        "check_in_date": "2025-07-10"
+      }
+    }
+  },
+  {
+    "id": "ACC_07_destination_guests",
+    "test_focus": "Dual slot extraction - destination and guests",
+    "information_type": "partial",
+    "utterance": "Need accommodation in Berlin for 2 people",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Berlin",
+        "num_guests": "2"
+      }
+    }
+  },
+  {
+    "id": "ACC_08_dates_only",
+    "test_focus": "Check-in and check-out extraction",
+    "information_type": "partial",
+    "utterance": "Stay from August 1 2025 to August 5 2025",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "check_in_date": "2025-08-01",
+        "check_out_date": "2025-08-05"
+      }
+    }
+  },
+  {
+    "id": "ACC_09_destination_budget",
+    "test_focus": "Destination and budget extraction",
+    "information_type": "partial",
+    "utterance": "High budget hotel in Vienna",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Vienna",
+        "budget_level": "high"
+      }
+    }
+  },
+  {
+    "id": "ACC_10_destination_checkout",
+    "test_focus": "Destination and check-out extraction",
+    "information_type": "partial",
+    "utterance": "Leaving Madrid on September 20 2025",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Madrid",
+        "check_out_date": "2025-09-20"
+      }
+    }
+  },
+
+  {
+    "id": "ACC_11_three_slots_basic",
+    "test_focus": "Destination, check-in, guests",
+    "information_type": "over_informative",
+    "utterance": "Book a hotel in Lisbon July 14 2025 for 2 guests",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Lisbon",
+        "check_in_date": "2025-07-14",
+        "num_guests": "2"
+      }
+    }
+  },
+  {
+    "id": "ACC_12_three_slots_dates",
+    "test_focus": "Destination, check-in, check-out",
+    "information_type": "over_informative",
+    "utterance": "Stay in Rome from June 1 2025 to June 5 2025",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Rome",
+        "check_in_date": "2025-06-01",
+        "check_out_date": "2025-06-05"
+      }
+    }
+  },
+  {
+    "id": "ACC_13_destination_dates_budget",
+    "test_focus": "Destination, dates and budget",
+    "information_type": "over_informative",
+    "utterance": "Cheap hotel in Amsterdam December 10 2025 to December 15 2025",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Amsterdam",
+        "check_in_date": "2025-12-10",
+        "check_out_date": "2025-12-15",
+        "budget_level": "low"
+      }
+    }
+  },
+  {
+    "id": "ACC_14_destination_guests_budget",
+    "test_focus": "Destination, guests and budget",
+    "information_type": "over_informative",
+    "utterance": "Medium budget room in Zurich for 4 people",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Zurich",
+        "num_guests": "4",
+        "budget_level": "medium"
+      }
+    }
+  },
+  {
+    "id": "ACC_15_dates_guests",
+    "test_focus": "Check-in, check-out and guests",
+    "information_type": "over_informative",
+    "utterance": "From August 10 2025 to August 20 2025 for 3 guests",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "check_in_date": "2025-08-10",
+        "check_out_date": "2025-08-20",
+        "num_guests": "3"
+      }
+    }
+  },
+
+  {
+    "id": "ACC_16_full_basic",
+    "test_focus": "Full slot extraction",
+    "information_type": "full",
+    "utterance": "Book a hotel in Milan from July 1 2025 to July 5 2025 for 2 guests low budget",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Milan",
+        "check_in_date": "2025-07-01",
+        "check_out_date": "2025-07-05",
+        "num_guests": "2",
+        "budget_level": "low"
+      }
+    }
+  },
+  {
+    "id": "ACC_17_full_high_budget",
+    "test_focus": "Full extraction high budget",
+    "information_type": "full",
+    "utterance": "High budget stay in Paris June 10 2025 to June 15 2025 for 3 people",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Paris",
+        "check_in_date": "2025-06-10",
+        "check_out_date": "2025-06-15",
+        "num_guests": "3",
+        "budget_level": "high"
+      }
+    }
+  },
+  {
+    "id": "ACC_18_full_medium",
+    "test_focus": "Full extraction medium budget",
+    "information_type": "full",
+    "utterance": "Medium budget hotel in Barcelona August 5 2025 to August 12 2025 for 4 guests",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Barcelona",
+        "check_in_date": "2025-08-05",
+        "check_out_date": "2025-08-12",
+        "num_guests": "4",
+        "budget_level": "medium"
+      }
+    }
+  },
+  {
+    "id": "ACC_19_full_long_stay",
+    "test_focus": "Long stay extraction",
+    "information_type": "full",
+    "utterance": "Stay in Berlin September 1 2025 to September 20 2025 for 2 guests",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Berlin",
+        "check_in_date": "2025-09-01",
+        "check_out_date": "2025-09-20",
+        "num_guests": "2"
+      }
+    }
+  },
+  {
+    "id": "ACC_20_full_all_slots",
+    "test_focus": "All slots filled including budget",
+    "information_type": "full",
+    "utterance": "Cheap room in Vienna October 3 2025 to October 10 2025 for 2 people",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Vienna",
+        "check_in_date": "2025-10-03",
+        "check_out_date": "2025-10-10",
+        "num_guests": "2",
+        "budget_level": "low"
+      }
+    }
+  },
+
+  {
+    "id": "ACC_21_noisy_informal",
+    "test_focus": "Informal phrasing robustness",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Need a place in Rome July 14 2025 till July 18 2025 for me and a friend",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Rome",
+        "check_in_date": "2025-07-14",
+        "check_out_date": "2025-07-18",
+        "num_guests": "2"
+      }
+    }
+  },
+  {
+    "id": "ACC_22_noisy_budget",
+    "test_focus": "Colloquial budget wording",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Looking for something kinda fancy in Paris June 10 2025 to June 15 2025",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Paris",
+        "check_in_date": "2025-06-10",
+        "check_out_date": "2025-06-15",
+        "budget_level": "high"
+      }
+    }
+  },
+  {
+    "id": "ACC_23_noisy_guest_expression",
+    "test_focus": "Guests expressed indirectly",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Hotel in Milan for me and two friends August 1 2025 to August 5 2025",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Milan",
+        "check_in_date": "2025-08-01",
+        "check_out_date": "2025-08-05",
+        "num_guests": "3"
+      }
+    }
+  },
+  {
+    "id": "ACC_24_noisy_short",
+    "test_focus": "Short informal phrasing",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Rome, June 10 2025 to June 12 2025, 2 of us",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Rome",
+        "check_in_date": "2025-06-10",
+        "check_out_date": "2025-06-12",
+        "num_guests": "2"
+      }
+    }
+  },
+  {
+    "id": "ACC_25_noisy_departure_wording",
+    "test_focus": "Check-out expressed as leaving",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Staying in Berlin July 10 2025 and leaving July 15 2025 with 3 people",
+    "ground_truth": {
+      "intent": "BOOK_ACCOMMODATION",
+      "slots": {
+        "destination": "Berlin",
+        "check_in_date": "2025-07-10",
+        "check_out_date": "2025-07-15",
+        "num_guests": "3"
+      }
+    }
+  },
+  {
+    "id": "ACT_01_single_destination",
+    "test_focus": "Single slot extraction - destination only",
+    "information_type": "under_informative",
+    "utterance": "I want activities in Rome",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {"destination": "Rome"}
+    }
+  },
+  {
+    "id": "ACT_02_single_category",
+    "test_focus": "Single slot extraction - activity category",
+    "information_type": "under_informative",
+    "utterance": "Looking for adventure activities",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {"activity_category": "adventure"}
+    }
+  },
+  {
+    "id": "ACT_03_single_time",
+    "test_focus": "Single slot extraction - preferred time",
+    "information_type": "under_informative",
+    "utterance": "Something in the evening",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {"preferred_time": "evening"}
+    }
+  },
+  {
+    "id": "ACT_04_single_budget",
+    "test_focus": "Single slot extraction - budget level",
+    "information_type": "under_informative",
+    "utterance": "Cheap activities please",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {"budget_level": "low"}
+    }
+  },
+  {
+    "id": "ACT_05_single_general",
+    "test_focus": "General activity category detection",
+    "information_type": "under_informative",
+    "utterance": "Show me something fun",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {"activity_category": "general"}
+    }
+  },
+
+  {
+    "id": "ACT_06_destination_category",
+    "test_focus": "Destination and category extraction",
+    "information_type": "partial",
+    "utterance": "Cultural activities in Paris",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Paris",
+        "activity_category": "cultural"
+      }
+    }
+  },
+  {
+    "id": "ACT_07_destination_time",
+    "test_focus": "Destination and preferred time",
+    "information_type": "partial",
+    "utterance": "Morning activities in Berlin",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Berlin",
+        "preferred_time": "morning"
+      }
+    }
+  },
+  {
+    "id": "ACT_08_category_budget",
+    "test_focus": "Category and budget extraction",
+    "information_type": "partial",
+    "utterance": "High budget food experiences",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "activity_category": "food",
+        "budget_level": "high"
+      }
+    }
+  },
+  {
+    "id": "ACT_09_destination_budget",
+    "test_focus": "Destination and budget extraction",
+    "information_type": "partial",
+    "utterance": "Cheap tours in Amsterdam",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Amsterdam",
+        "budget_level": "low"
+      }
+    }
+  },
+  {
+    "id": "ACT_10_category_time",
+    "test_focus": "Category and time extraction",
+    "information_type": "partial",
+    "utterance": "Adventure stuff in the afternoon",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "activity_category": "adventure",
+        "preferred_time": "afternoon"
+      }
+    }
+  },
+
+  {
+    "id": "ACT_11_three_slots_basic",
+    "test_focus": "Destination, category and time",
+    "information_type": "over_informative",
+    "utterance": "Nature activities in Vienna in the morning",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Vienna",
+        "activity_category": "nature",
+        "preferred_time": "morning"
+      }
+    }
+  },
+  {
+    "id": "ACT_12_three_slots_budget",
+    "test_focus": "Destination, category and budget",
+    "information_type": "over_informative",
+    "utterance": "Low budget nightlife in Madrid",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Madrid",
+        "activity_category": "nightlife",
+        "budget_level": "low"
+      }
+    }
+  },
+  {
+    "id": "ACT_13_three_slots_all",
+    "test_focus": "Category, time and budget",
+    "information_type": "over_informative",
+    "utterance": "Family activities in the evening medium budget",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "activity_category": "family",
+        "preferred_time": "evening",
+        "budget_level": "medium"
+      }
+    }
+  },
+  {
+    "id": "ACT_14_destination_category_time",
+    "test_focus": "Destination, category and time extraction",
+    "information_type": "over_informative",
+    "utterance": "Cultural tours in Lisbon in the afternoon",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Lisbon",
+        "activity_category": "cultural",
+        "preferred_time": "afternoon"
+      }
+    }
+  },
+  {
+    "id": "ACT_15_destination_category_budget",
+    "test_focus": "Destination, category and budget",
+    "information_type": "over_informative",
+    "utterance": "High budget sport events in Barcelona",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Barcelona",
+        "activity_category": "sport",
+        "budget_level": "high"
+      }
+    }
+  },
+
+  {
+    "id": "ACT_16_full_basic",
+    "test_focus": "Full slot extraction",
+    "information_type": "full",
+    "utterance": "Book a cultural activity in Rome in the morning low budget",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Rome",
+        "activity_category": "cultural",
+        "preferred_time": "morning",
+        "budget_level": "low"
+      }
+    }
+  },
+  {
+    "id": "ACT_17_full_high_budget",
+    "test_focus": "Full extraction high budget",
+    "information_type": "full",
+    "utterance": "Adventure experience in Zurich in the afternoon high budget",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Zurich",
+        "activity_category": "adventure",
+        "preferred_time": "afternoon",
+        "budget_level": "high"
+      }
+    }
+  },
+  {
+    "id": "ACT_18_full_medium",
+    "test_focus": "Full extraction medium budget",
+    "information_type": "full",
+    "utterance": "Nature tour in Milan in the evening medium budget",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Milan",
+        "activity_category": "nature",
+        "preferred_time": "evening",
+        "budget_level": "medium"
+      }
+    }
+  },
+  {
+    "id": "ACT_19_full_family",
+    "test_focus": "Family category full extraction",
+    "information_type": "full",
+    "utterance": "Family activity in Berlin in the morning low budget",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Berlin",
+        "activity_category": "family",
+        "preferred_time": "morning",
+        "budget_level": "low"
+      }
+    }
+  },
+  {
+    "id": "ACT_20_full_general",
+    "test_focus": "General category full extraction",
+    "information_type": "full",
+    "utterance": "General activity in Amsterdam in the evening high budget",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Amsterdam",
+        "activity_category": "general",
+        "preferred_time": "evening",
+        "budget_level": "high"
+      }
+    }
+  },
+
+  {
+    "id": "ACT_21_noisy_informal",
+    "test_focus": "Informal phrasing robustness",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Anything cool to do in Rome tonight on a budget?",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Rome",
+        "preferred_time": "evening",
+        "budget_level": "low",
+        "activity_category": "general"
+      }
+    }
+  },
+  {
+    "id": "ACT_22_noisy_food",
+    "test_focus": "Colloquial food category",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Wanna try some fancy food stuff in Paris this afternoon",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Paris",
+        "activity_category": "food",
+        "preferred_time": "afternoon",
+        "budget_level": "high"
+      }
+    }
+  },
+  {
+    "id": "ACT_23_noisy_sport",
+    "test_focus": "Colloquial sport expression",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Any big game or sport event in Madrid tomorrow evening?",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Madrid",
+        "activity_category": "sport",
+        "preferred_time": "evening"
+      }
+    }
+  },
+  {
+    "id": "ACT_24_noisy_nature",
+    "test_focus": "Nature expressed informally",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Something outdoorsy in Vienna in the morning",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Vienna",
+        "activity_category": "nature",
+        "preferred_time": "morning"
+      }
+    }
+  },
+  {
+    "id": "ACT_25_noisy_family",
+    "test_focus": "Family category informal wording",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Fun stuff for kids in Barcelona this afternoon cheap",
+    "ground_truth": {
+      "intent": "BOOK_ACTIVITY",
+      "slots": {
+        "destination": "Barcelona",
+        "activity_category": "family",
+        "preferred_time": "afternoon",
+        "budget_level": "low"
+      }
+    }
+  },
+  {
+    "id": "CMP_01_single_cities",
+    "test_focus": "City comparison without category",
+    "information_type": "under_informative",
+    "utterance": "Compare Rome and Paris",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Rome",
+        "city2": "Paris"
+      }
+    }
+  },
+  {
+    "id": "CMP_02_single_order",
+    "test_focus": "City order robustness",
+    "information_type": "under_informative",
+    "utterance": "Paris vs Berlin",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Paris",
+        "city2": "Berlin"
+      }
+    }
+  },
+  {
+    "id": "CMP_03_missing_category",
+    "test_focus": "Cities only comparison",
+    "information_type": "under_informative",
+    "utterance": "Which is better, Milan or Madrid?",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Milan",
+        "city2": "Madrid"
+      }
+    }
+  },
+  {
+    "id": "CMP_04_two_cities_short",
+    "test_focus": "Minimal city comparison",
+    "information_type": "under_informative",
+    "utterance": "Vienna and Amsterdam comparison",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Vienna",
+        "city2": "Amsterdam"
+      }
+    }
+  },
+  {
+    "id": "CMP_05_basic_cities",
+    "test_focus": "Basic city comparison",
+    "information_type": "under_informative",
+    "utterance": "London or Barcelona?",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "London",
+        "city2": "Barcelona"
+      }
+    }
+  },
+
+  {
+    "id": "CMP_06_cities_cultural",
+    "test_focus": "City comparison with cultural category",
+    "information_type": "partial",
+    "utterance": "Compare Rome and Paris for cultural activities",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Rome",
+        "city2": "Paris",
+        "activity_category": "cultural"
+      }
+    }
+  },
+  {
+    "id": "CMP_07_cities_food",
+    "test_focus": "City comparison with food category",
+    "information_type": "partial",
+    "utterance": "Which is better for food, Milan or Naples?",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Milan",
+        "city2": "Naples",
+        "activity_category": "food"
+      }
+    }
+  },
+  {
+    "id": "CMP_08_cities_nightlife",
+    "test_focus": "City comparison nightlife",
+    "information_type": "partial",
+    "utterance": "Berlin vs Madrid for nightlife",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Berlin",
+        "city2": "Madrid",
+        "activity_category": "nightlife"
+      }
+    }
+  },
+  {
+    "id": "CMP_09_cities_adventure",
+    "test_focus": "City comparison adventure",
+    "information_type": "partial",
+    "utterance": "Is Zurich or Innsbruck better for adventure?",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Zurich",
+        "city2": "Innsbruck",
+        "activity_category": "adventure"
+      }
+    }
+  },
+  {
+    "id": "CMP_10_cities_family",
+    "test_focus": "City comparison family category",
+    "information_type": "partial",
+    "utterance": "Compare Paris and Barcelona for family activities",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Paris",
+        "city2": "Barcelona",
+        "activity_category": "family"
+      }
+    }
+  },
+
+  {
+    "id": "CMP_11_three_slots_basic",
+    "test_focus": "Cities with explicit category",
+    "information_type": "over_informative",
+    "utterance": "I want to compare Rome and Florence for cultural tours",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Rome",
+        "city2": "Florence",
+        "activity_category": "cultural"
+      }
+    }
+  },
+  {
+    "id": "CMP_12_three_slots_sport",
+    "test_focus": "Cities with sport category",
+    "information_type": "over_informative",
+    "utterance": "Between London and Manchester for sport events",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "London",
+        "city2": "Manchester",
+        "activity_category": "sport"
+      }
+    }
+  },
+  {
+    "id": "CMP_13_three_slots_nature",
+    "test_focus": "Cities with nature category",
+    "information_type": "over_informative",
+    "utterance": "Which is better, Vienna or Salzburg for nature experiences?",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Vienna",
+        "city2": "Salzburg",
+        "activity_category": "nature"
+      }
+    }
+  },
+  {
+    "id": "CMP_14_three_slots_general",
+    "test_focus": "Cities with general category",
+    "information_type": "over_informative",
+    "utterance": "Compare Amsterdam and Brussels for general activities",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Amsterdam",
+        "city2": "Brussels",
+        "activity_category": "general"
+      }
+    }
+  },
+  {
+    "id": "CMP_15_three_slots_food",
+    "test_focus": "Cities with food focus",
+    "information_type": "over_informative",
+    "utterance": "Rome vs Bologna when it comes to food experiences",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Rome",
+        "city2": "Bologna",
+        "activity_category": "food"
+      }
+    }
+  },
+
+  {
+    "id": "CMP_16_full_explicit",
+    "test_focus": "Explicit structured comparison",
+    "information_type": "full",
+    "utterance": "Please compare Paris and Berlin for nightlife activities",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Paris",
+        "city2": "Berlin",
+        "activity_category": "nightlife"
+      }
+    }
+  },
+  {
+    "id": "CMP_17_full_cultural",
+    "test_focus": "Full comparison cultural",
+    "information_type": "full",
+    "utterance": "Compare Madrid and Barcelona for cultural attractions",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Madrid",
+        "city2": "Barcelona",
+        "activity_category": "cultural"
+      }
+    }
+  },
+  {
+    "id": "CMP_18_full_adventure",
+    "test_focus": "Full comparison adventure",
+    "information_type": "full",
+    "utterance": "Between Zurich and Geneva for adventure activities",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Zurich",
+        "city2": "Geneva",
+        "activity_category": "adventure"
+      }
+    }
+  },
+  {
+    "id": "CMP_19_full_family",
+    "test_focus": "Full comparison family",
+    "information_type": "full",
+    "utterance": "Which is better for family trips, Milan or Turin?",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Milan",
+        "city2": "Turin",
+        "activity_category": "family"
+      }
+    }
+  },
+  {
+    "id": "CMP_20_full_nature",
+    "test_focus": "Full comparison nature",
+    "information_type": "full",
+    "utterance": "Compare Oslo and Stockholm for nature activities",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Oslo",
+        "city2": "Stockholm",
+        "activity_category": "nature"
+      }
+    }
+  },
+
+  {
+    "id": "CMP_21_noisy_informal",
+    "test_focus": "Informal phrasing robustness",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Rome or Paris for cool cultural stuff?",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Rome",
+        "city2": "Paris",
+        "activity_category": "cultural"
+      }
+    }
+  },
+  {
+    "id": "CMP_22_noisy_food",
+    "test_focus": "Colloquial food comparison",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Milan vs Naples if you're into good eats",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Milan",
+        "city2": "Naples",
+        "activity_category": "food"
+      }
+    }
+  },
+  {
+    "id": "CMP_23_noisy_nightlife",
+    "test_focus": "Colloquial nightlife wording",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Berlin or Madrid for party vibes?",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Berlin",
+        "city2": "Madrid",
+        "activity_category": "nightlife"
+      }
+    }
+  },
+  {
+    "id": "CMP_24_noisy_adventure",
+    "test_focus": "Informal adventure expression",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Zurich or Innsbruck if I wanna do something outdoorsy?",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Zurich",
+        "city2": "Innsbruck",
+        "activity_category": "adventure"
+      }
+    }
+  },
+  {
+    "id": "CMP_25_noisy_family",
+    "test_focus": "Informal family wording",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Paris or Barcelona better for kids?",
+    "ground_truth": {
+      "intent": "COMPARE_CITIES",
+      "slots": {
+        "city1": "Paris",
+        "city2": "Barcelona",
+        "activity_category": "family"
+      }
+    }
+  },
+  {
+    "id": "OOD_01_math",
+    "test_focus": "Basic arithmetic question",
+    "information_type": "under_informative",
+    "utterance": "What is 25 times 4?",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+  {
+    "id": "OOD_02_weather",
+    "test_focus": "Weather query",
+    "information_type": "under_informative",
+    "utterance": "What’s the weather like today?",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+  {
+    "id": "OOD_03_politics",
+    "test_focus": "Political question",
+    "information_type": "under_informative",
+    "utterance": "Who is the president of France?",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+  {
+    "id": "OOD_04_general_knowledge",
+    "test_focus": "General knowledge question",
+    "information_type": "under_informative",
+    "utterance": "Explain how photosynthesis works",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+  {
+    "id": "OOD_05_small_talk",
+    "test_focus": "Chit-chat greeting",
+    "information_type": "under_informative",
+    "utterance": "How are you today?",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+
+  {
+    "id": "OOD_06_programming",
+    "test_focus": "Programming question",
+    "information_type": "partial",
+    "utterance": "How do I write a for loop in Python?",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+  {
+    "id": "OOD_07_history",
+    "test_focus": "Historical question",
+    "information_type": "partial",
+    "utterance": "When did World War II end?",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+  {
+    "id": "OOD_08_science",
+    "test_focus": "Science explanation",
+    "information_type": "partial",
+    "utterance": "What is quantum physics?",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+  {
+    "id": "OOD_09_recipe",
+    "test_focus": "Cooking instruction request",
+    "information_type": "partial",
+    "utterance": "How do I make a chocolate cake?",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+  {
+    "id": "OOD_10_translation",
+    "test_focus": "Translation request",
+    "information_type": "partial",
+    "utterance": "Translate hello into Spanish",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+
+  {
+    "id": "OOD_11_borderline_cost",
+    "test_focus": "Ambiguous travel cost question",
+    "information_type": "noisy_paraphrase",
+    "utterance": "How much does Rome cost?",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+  {
+    "id": "OOD_12_borderline_opinion",
+    "test_focus": "Opinion question unrelated to booking",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Is Rome a good city?",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+  {
+    "id": "OOD_13_borderline_finance",
+    "test_focus": "Financial advice question",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Should I invest in stocks right now?",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+  {
+    "id": "OOD_14_borderline_joke",
+    "test_focus": "Humor request",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Tell me a joke",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+  {
+    "id": "OOD_15_borderline_personal",
+    "test_focus": "Personal assistant request unrelated to travel",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Remind me to call my mom tomorrow",
+    "ground_truth": {
+      "intent": "OOD",
+      "slots": {}
+    }
+  },
+  {
+    "id": "END_01_simple_goodbye",
+    "test_focus": "Simple goodbye detection",
+    "information_type": "under_informative",
+    "utterance": "Goodbye",
+    "ground_truth": {
+      "intent": "END_DIALOGUE",
+      "slots": {}
+    }
+  },
+  {
+    "id": "END_02_thanks_bye",
+    "test_focus": "Thank you plus goodbye",
+    "information_type": "under_informative",
+    "utterance": "Thanks, bye!",
+    "ground_truth": {
+      "intent": "END_DIALOGUE",
+      "slots": {}
+    }
+  },
+  {
+    "id": "END_03_end_conversation",
+    "test_focus": "Explicit conversation termination",
+    "information_type": "partial",
+    "utterance": "That’s all I needed, you can stop now",
+    "ground_truth": {
+      "intent": "END_DIALOGUE",
+      "slots": {}
+    }
+  },
+  {
+    "id": "END_04_closing_statement",
+    "test_focus": "Polite session closure",
+    "information_type": "partial",
+    "utterance": "Everything is clear, thank you very much",
+    "ground_truth": {
+      "intent": "END_DIALOGUE",
+      "slots": {}
+    }
+  },
+  {
+    "id": "END_05_informal_closure",
+    "test_focus": "Informal conversation closure",
+    "information_type": "noisy_paraphrase",
+    "utterance": "Alright, I’m done here",
+    "ground_truth": {
+      "intent": "END_DIALOGUE",
+      "slots": {}
+    }
+  },
+  {
+    "id": "MULTI_01_flight_hotel_basic",
+    "test_focus": "Flight + accommodation sequential extraction",
+    "information_type": "multi_intent",
+    "utterance": "Book a flight from Milan to Paris June 10 2025 and find a hotel there for 2 people from June 10 2025 to June 15 2025",
+    "ground_truth": [
+      {
+        "intent": "BOOK_FLIGHT",
+        "slots": {
+          "origin": "Milan",
+          "destination": "Paris",
+          "departure_date": "2025-06-10"
+        }
+      },
+      {
+        "intent": "BOOK_ACCOMMODATION",
+        "slots": {
+          "destination": "Paris",
+          "check_in_date": "2025-06-10",
+          "check_out_date": "2025-06-15",
+          "num_guests": "2"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_02_flight_activity",
+    "test_focus": "Flight + activity",
+    "information_type": "multi_intent",
+    "utterance": "I need a flight to Rome July 5 2025 and some cultural activities there in the evening",
+    "ground_truth": [
+      {
+        "intent": "BOOK_FLIGHT",
+        "slots": {
+          "destination": "Rome",
+          "departure_date": "2025-07-05"
+        }
+      },
+      {
+        "intent": "BOOK_ACTIVITY",
+        "slots": {
+          "destination": "Rome",
+          "activity_category": "cultural",
+          "preferred_time": "evening"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_03_hotel_activity",
+    "test_focus": "Accommodation + activity",
+    "information_type": "multi_intent",
+    "utterance": "Book a hotel in Berlin August 1 2025 to August 5 2025 and suggest nightlife activities",
+    "ground_truth": [
+      {
+        "intent": "BOOK_ACCOMMODATION",
+        "slots": {
+          "destination": "Berlin",
+          "check_in_date": "2025-08-01",
+          "check_out_date": "2025-08-05"
+        }
+      },
+      {
+        "intent": "BOOK_ACTIVITY",
+        "slots": {
+          "destination": "Berlin",
+          "activity_category": "nightlife"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_04_compare_flight",
+    "test_focus": "Compare cities + flight",
+    "information_type": "multi_intent",
+    "utterance": "Compare Rome and Paris for food and book a flight to the best one from Milan",
+    "ground_truth": [
+      {
+        "intent": "COMPARE_CITIES",
+        "slots": {
+          "city1": "Rome",
+          "city2": "Paris",
+          "activity_category": "food"
+        }
+      },
+      {
+        "intent": "BOOK_FLIGHT",
+        "slots": {
+          "origin": "Milan"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_05_three_intents",
+    "test_focus": "Flight + accommodation + activity",
+    "information_type": "multi_intent",
+    "utterance": "Book a flight to Madrid September 1 2025, reserve a hotel there for 2 guests and find adventure activities",
+    "ground_truth": [
+      {
+        "intent": "BOOK_FLIGHT",
+        "slots": {
+          "destination": "Madrid",
+          "departure_date": "2025-09-01"
+        }
+      },
+      {
+        "intent": "BOOK_ACCOMMODATION",
+        "slots": {
+          "destination": "Madrid",
+          "num_guests": "2"
+        }
+      },
+      {
+        "intent": "BOOK_ACTIVITY",
+        "slots": {
+          "destination": "Madrid",
+          "activity_category": "adventure"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_06_flight_compare",
+    "test_focus": "Flight + comparison",
+    "information_type": "multi_intent",
+    "utterance": "I need a flight from Berlin to Vienna and compare Vienna and Prague for cultural activities",
+    "ground_truth": [
+      {
+        "intent": "BOOK_FLIGHT",
+        "slots": {
+          "origin": "Berlin",
+          "destination": "Vienna"
+        }
+      },
+      {
+        "intent": "COMPARE_CITIES",
+        "slots": {
+          "city1": "Vienna",
+          "city2": "Prague",
+          "activity_category": "cultural"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_07_activity_hotel",
+    "test_focus": "Activity + accommodation",
+    "information_type": "multi_intent",
+    "utterance": "Find family activities in Paris and book a hotel there for 3 guests",
+    "ground_truth": [
+      {
+        "intent": "BOOK_ACTIVITY",
+        "slots": {
+          "destination": "Paris",
+          "activity_category": "family"
+        }
+      },
+      {
+        "intent": "BOOK_ACCOMMODATION",
+        "slots": {
+          "destination": "Paris",
+          "num_guests": "3"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_08_compare_activity",
+    "test_focus": "Comparison + activity booking",
+    "information_type": "multi_intent",
+    "utterance": "Compare Milan and Naples for food and book a food tour in Milan",
+    "ground_truth": [
+      {
+        "intent": "COMPARE_CITIES",
+        "slots": {
+          "city1": "Milan",
+          "city2": "Naples",
+          "activity_category": "food"
+        }
+      },
+      {
+        "intent": "BOOK_ACTIVITY",
+        "slots": {
+          "destination": "Milan",
+          "activity_category": "food"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_09_flight_hotel_short",
+    "test_focus": "Short multi-intent command",
+    "information_type": "multi_intent",
+    "utterance": "Flight to London and hotel there",
+    "ground_truth": [
+      {
+        "intent": "BOOK_FLIGHT",
+        "slots": {
+          "destination": "London"
+        }
+      },
+      {
+        "intent": "BOOK_ACCOMMODATION",
+        "slots": {
+          "destination": "London"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_10_hotel_compare",
+    "test_focus": "Accommodation + comparison",
+    "information_type": "multi_intent",
+    "utterance": "Book a hotel in Barcelona and compare Barcelona and Madrid for nightlife",
+    "ground_truth": [
+      {
+        "intent": "BOOK_ACCOMMODATION",
+        "slots": {
+          "destination": "Barcelona"
+        }
+      },
+      {
+        "intent": "COMPARE_CITIES",
+        "slots": {
+          "city1": "Barcelona",
+          "city2": "Madrid",
+          "activity_category": "nightlife"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_11_three_intents_order_variation",
+    "test_focus": "Intent order variation",
+    "information_type": "multi_intent",
+    "utterance": "Find cultural activities in Rome, compare Rome and Florence and book a flight from Milan",
+    "ground_truth": [
+      {
+        "intent": "BOOK_ACTIVITY",
+        "slots": {
+          "destination": "Rome",
+          "activity_category": "cultural"
+        }
+      },
+      {
+        "intent": "COMPARE_CITIES",
+        "slots": {
+          "city1": "Rome",
+          "city2": "Florence"
+        }
+      },
+      {
+        "intent": "BOOK_FLIGHT",
+        "slots": {
+          "origin": "Milan"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_12_compare_flight_activity",
+    "test_focus": "Comparison + flight + activity",
+    "information_type": "multi_intent",
+    "utterance": "Compare Berlin and Munich for sport, book a flight to Berlin and find sport events there",
+    "ground_truth": [
+      {
+        "intent": "COMPARE_CITIES",
+        "slots": {
+          "city1": "Berlin",
+          "city2": "Munich",
+          "activity_category": "sport"
+        }
+      },
+      {
+        "intent": "BOOK_FLIGHT",
+        "slots": {
+          "destination": "Berlin"
+        }
+      },
+      {
+        "intent": "BOOK_ACTIVITY",
+        "slots": {
+          "destination": "Berlin",
+          "activity_category": "sport"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_13_activity_compare_short",
+    "test_focus": "Short activity + compare",
+    "information_type": "multi_intent",
+    "utterance": "Nightlife in Madrid and compare Madrid and Barcelona",
+    "ground_truth": [
+      {
+        "intent": "BOOK_ACTIVITY",
+        "slots": {
+          "destination": "Madrid",
+          "activity_category": "nightlife"
+        }
+      },
+      {
+        "intent": "COMPARE_CITIES",
+        "slots": {
+          "city1": "Madrid",
+          "city2": "Barcelona"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_14_full_chain",
+    "test_focus": "Full travel planning chain",
+    "information_type": "multi_intent",
+    "utterance": "Book a flight from Paris to Vienna October 10 2025, reserve a hotel there and find nature activities",
+    "ground_truth": [
+      {
+        "intent": "BOOK_FLIGHT",
+        "slots": {
+          "origin": "Paris",
+          "destination": "Vienna",
+          "departure_date": "2025-10-10"
+        }
+      },
+      {
+        "intent": "BOOK_ACCOMMODATION",
+        "slots": {
+          "destination": "Vienna"
+        }
+      },
+      {
+        "intent": "BOOK_ACTIVITY",
+        "slots": {
+          "destination": "Vienna",
+          "activity_category": "nature"
+        }
+      }
+    ]
+  },
+  {
+    "id": "MULTI_15_compare_then_hotel",
+    "test_focus": "Compare then accommodation booking",
+    "information_type": "multi_intent",
+    "utterance": "Compare Amsterdam and Brussels for general activities and book a hotel in Amsterdam",
+    "ground_truth": [
+      {
+        "intent": "COMPARE_CITIES",
+        "slots": {
+          "city1": "Amsterdam",
+          "city2": "Brussels",
+          "activity_category": "general"
+        }
+      },
+      {
+        "intent": "BOOK_ACCOMMODATION",
+        "slots": {
+          "destination": "Amsterdam"
+        }
+      }
+    ]
+  }
+]

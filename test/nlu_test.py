@@ -1,624 +1,522 @@
-import re
-import json
-from typing import Any, Dict, List, Tuple
-from collections import defaultdict
+"""
+NLU Evaluation Test Suite
 
+Loads test cases from nlu_test_utterances.json and evaluates the NLU component.
+
+Metrics:
+- Intent Accuracy
+- Slot Precision, Recall, F1
+- Exact Match Accuracy (intent + all slots correct)
+- Multi-intent Accuracy (evaluated separately, order-sensitive)
+
+Run with:  python test/nlu_test.py [--verbose]
+"""
+
+import json
 import sys
 import os
+import argparse
+from typing import Any, Dict, List, Optional, Tuple
+from collections import defaultdict
+from dataclasses import dataclass, field
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from llm import make_llm
 from nlu import nlu_parse
 from dm import DialogueState, state_context
-from schema import INTENT_SLOTS, INTENTS
+from intent_splitter import split_intents
+from schema import INTENTS
+
+# ---------------------------------------------------------------------------
+# Path to the utterances file
+# ---------------------------------------------------------------------------
+
+UTTERANCES_FILE = os.path.join(os.path.dirname(__file__), "nlu_test_utterances.json")
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _normalize(value: Any) -> Optional[str]:
+    """Normalize a slot value to a comparable lowercase string, or None."""
+    if value is None:
+        return None
+    return str(value).strip().lower()
 
 
-# --- Helpers ---
-
-NOT_NONE = "__NOT_NONE__"
-ANY = "__ANY__"
-
-def _match_value(expected: Any, got: Any) -> bool:
-    """
-    expected can be:
-      - exact value (str/int)
-      - list/tuple/set of acceptable values
-      - {"re": "<regex>"} to match strings
-      - "__NOT_NONE__" (value must be not None)
-      - "__ANY__" (always ok)
-    """
-    if expected == ANY:
-        return True
-
-    if expected == NOT_NONE:
-        return got is not None
-
-    if isinstance(expected, (list, tuple, set)):
-        return got in expected
-
-    if isinstance(expected, dict) and "re" in expected:
-        if got is None:
-            return False
-        return re.search(expected["re"], str(got)) is not None
-
-    # numeric tolerance: allow "4" vs 4
-    if isinstance(expected, int):
-        if isinstance(got, int):
-            return got == expected
-        if isinstance(got, str) and got.strip().isdigit():
-            return int(got.strip()) == expected
-        return False
-
-    return got == expected
-
-
-def _check_schema_keys(expected_intent: str, got_slots: Dict[str, Any]) -> Tuple[bool, str]:
-    expected_keys = list(INTENT_SLOTS.get(expected_intent, []))
-    got_keys = list(got_slots.keys())
-
-    if set(got_keys) != set(expected_keys):
-        return False, f"Slot keys mismatch. expected={expected_keys}, got={got_keys}"
-
-    return True, ""
-
-
-def _check_expected_slots(exp_slots: Dict[str, Any], got_slots: Dict[str, Any]) -> Tuple[bool, str]:
-    for k, exp in exp_slots.items():
-        if k not in got_slots:
-            return False, f"Missing expected slot '{k}' in output"
-        if not _match_value(exp, got_slots.get(k)):
-            return False, f"Slot '{k}' mismatch. expected={exp}, got={got_slots.get(k)}"
-    return True, ""
-
-
-def _call_nlu(pipe, user: str, history: List[Dict[str, str]]) -> Dict[str, Any]:
-    """
-    Compatible with both nlu_parse signatures (with/without current_intent kw).
-    Generate system prompt using dst module before calling nlu_parse.
-    """
-    # Create a default dialogue state for generating the system prompt
+def _call_nlu(pipe, utterance: str) -> Dict[str, Any]:
+    """Run the NLU on a single utterance with a default dialogue state."""
     state = DialogueState()
     system_prompt = state_context(state)
-    
-    return nlu_parse(pipe, user, system_prompt, dialogue_history=history)
+    return nlu_parse(pipe, utterance, system_prompt, dialogue_history=None)
 
 
-# --- Test cases (aligned with schema.py) ---
+def _non_null_slots(slots: Dict[str, Any]) -> Dict[str, str]:
+    """Return only the slots that have a non-null value, normalized."""
+    return {k: _normalize(v) for k, v in slots.items() if v is not None}
 
-TEST_DIALOGUES = [
-    # ==========================================================================
-    # BOOK_FLIGHT TESTS
-    # ==========================================================================
-    
-    # ---- Under-informative ----
-    {
-        "name": "01_flight_minimal",
-        "history": [],
-        "user": "I need a flight",
-        "expect_intent": "BOOK_FLIGHT",
-        "expect_slots": {},
-        "purpose": "Under-informative: flight with no details"
-    },
-    {
-        "name": "02_flight_destination_only",
-        "history": [],
-        "user": "I want to fly to Rome",
-        "expect_intent": "BOOK_FLIGHT",
-        "expect_slots": {"destination": "Rome"},
-        "purpose": "Under-informative: only destination"
-    },
-    
-    # ---- Normal ----
-    {
-        "name": "03_flight_origin_dest",
-        "history": [],
-        "user": "I need a flight from Milan to Paris",
-        "expect_intent": "BOOK_FLIGHT",
-        "expect_slots": {
-            "origin": "Milan",
-            "destination": "Paris"
-        },
-        "purpose": "Normal: origin and destination"
-    },
-    {
-        "name": "04_flight_with_dates",
-        "history": [],
-        "user": "Book a flight to Barcelona on March 15th returning March 20th",
-        "expect_intent": "BOOK_FLIGHT",
-        "expect_slots": {
-            "destination": "Barcelona",
-            "departure_date": NOT_NONE,
-            "return_date": NOT_NONE
-        },
-        "purpose": "Normal: destination with dates"
-    },
-    
-    # ---- Over-informative ----
-    {
-        "name": "05_flight_overinformative",
-        "history": [],
-        "user": "I need to book a flight from London Heathrow to Madrid Barajas for 3 passengers on April 10th 2026, returning April 17th, we have a medium budget and prefer morning flights with no layovers",
-        "expect_intent": "BOOK_FLIGHT",
-        "expect_slots": {
-            "origin": NOT_NONE,
-            "destination": NOT_NONE,
-            "departure_date": NOT_NONE,
-            "return_date": NOT_NONE,
-            "num_passengers": 3,
-            "budget_level": "medium"
-        },
-        "purpose": "Over-informative: all slots plus extra details"
-    },
-    
-    # ---- Multi-turn / Mixed Initiative ----
-    {
-        "name": "06_flight_multiturn_origin",
-        "history": [
-            {"role": "user", "content": "I want to book a flight to Vienna"},
-            {"role": "assistant", "content": "Where will you be departing from?"}
-        ],
-        "user": "from Berlin",
-        "expect_intent": "BOOK_FLIGHT",
-        "expect_slots": {"origin": "Berlin"},
-        "purpose": "Multi-turn: providing origin after prompt"
-    },
-    {
-        "name": "07_flight_multiturn_passengers",
-        "history": [
-            {"role": "user", "content": "Flight from Rome to Amsterdam on May 5th"},
-            {"role": "assistant", "content": "How many passengers?"}
-        ],
-        "user": "4 people",
-        "expect_intent": "BOOK_FLIGHT",
-        "expect_slots": {"num_passengers": 4},
-        "purpose": "Multi-turn: providing passengers count"
-    },
+# ---------------------------------------------------------------------------
+# Per-case comparison
+# ---------------------------------------------------------------------------
 
-    # ==========================================================================
-    # BOOK_ACCOMMODATION TESTS
-    # ==========================================================================
-    
-    # ---- Under-informative ----
-    {
-        "name": "08_accommodation_minimal",
-        "history": [],
-        "user": "I need a hotel",
-        "expect_intent": "BOOK_ACCOMMODATION",
-        "expect_slots": {},
-        "purpose": "Under-informative: hotel with no details"
-    },
-    
-    # ---- Normal ----
-    {
-        "name": "09_accommodation_dest_dates",
-        "history": [],
-        "user": "Find me a hotel in Prague from June 10 to June 15",
-        "expect_intent": "BOOK_ACCOMMODATION",
-        "expect_slots": {
-            "destination": "Prague",
-            "check_in_date": NOT_NONE,
-            "check_out_date": NOT_NONE
-        },
-        "purpose": "Normal: destination with dates"
-    },
-    {
-        "name": "10_accommodation_hostel",
-        "history": [],
-        "user": "I need a place to stay in Amsterdam for 2 guests",
-        "expect_intent": "BOOK_ACCOMMODATION",
-        "expect_slots": {
-            "destination": "Amsterdam",
-            "num_guests": 2
-        },
-        "purpose": "Normal: destination with guests"
-    },
-    
-    # ---- Over-informative ----
-    {
-        "name": "11_accommodation_overinformative",
-        "history": [],
-        "user": "I'm looking for a luxury hotel in Paris near the Eiffel Tower, checking in on July 1st and checking out on July 7th 2026, for 2 guests, high budget, preferably with a pool and free breakfast",
-        "expect_intent": "BOOK_ACCOMMODATION",
-        "expect_slots": {
-            "destination": "Paris",
-            "check_in_date": NOT_NONE,
-            "check_out_date": NOT_NONE,
-            "num_guests": 2,
-            "budget_level": "high"
-        },
-        "purpose": "Over-informative: all slots plus amenities"
-    },
-
-    # ==========================================================================
-    # BOOK_ACTIVITY TESTS
-    # ==========================================================================
-    
-    # ---- Under-informative ----
-    {
-        "name": "12_activity_minimal",
-        "history": [],
-        "user": "I want to do something fun",
-        "expect_intent": "BOOK_ACTIVITY",
-        "expect_slots": {},
-        "purpose": "Under-informative: activity with no details"
-    },
-    
-    # ---- Normal ----
-    {
-        "name": "13_activity_destination_category",
-        "history": [],
-        "user": "I want to go hiking in the Swiss Alps",
-        "expect_intent": "BOOK_ACTIVITY",
-        "expect_slots": {
-            "destination": NOT_NONE,
-            "activity_category": "adventure"
-        },
-        "purpose": "Normal: destination with activity category"
-    },
-    {
-        "name": "14_activity_museum",
-        "history": [],
-        "user": "Book a museum tour in Florence",
-        "expect_intent": "BOOK_ACTIVITY",
-        "expect_slots": {
-            "destination": "Florence",
-            "activity_category": "cultural"
-        },
-        "purpose": "Normal: cultural activity"
-    },
-    
-    # ---- Multi-turn ----
-    {
-        "name": "15_activity_multiturn",
-        "history": [
-            {"role": "user", "content": "I want to book an activity in Rome"},
-            {"role": "assistant", "content": "What type of activity are you interested in?"}
-        ],
-        "user": "food and wine tasting",
-        "expect_intent": "BOOK_ACTIVITY",
-        "expect_slots": {"activity_category": "food"},
-        "purpose": "Multi-turn: providing activity type"
-    },
-
-    # ==========================================================================
-    # COMPARE_CITIES TESTS
-    # ==========================================================================
-    
-    {
-        "name": "16_compare_minimal",
-        "history": [],
-        "user": "Compare cities",
-        "expect_intent": "COMPARE_CITIES",
-        "expect_slots": {},
-        "purpose": "Under-informative: compare with no cities"
-    },
-    {
-        "name": "17_compare_two_cities",
-        "history": [],
-        "user": "Compare Paris and London for sightseeing",
-        "expect_intent": "COMPARE_CITIES",
-        "expect_slots": {
-            "city1": "Paris",
-            "city2": "London",
-            "activity_category": NOT_NONE
-        },
-        "purpose": "Normal: two cities with category"
-    },
-    {
-        "name": "18_compare_question_form",
-        "history": [],
-        "user": "Which is better for food, Rome or Barcelona?",
-        "expect_intent": "COMPARE_CITIES",
-        "expect_slots": {
-            "city1": ("Rome", "Barcelona"),
-            "city2": ("Rome", "Barcelona"),
-            "activity_category": "food"
-        },
-        "purpose": "Normal: comparison as question"
-    },
-
-    # ==========================================================================
-    # GOODBYE TESTS
-    # ==========================================================================
-    
-    {
-        "name": "19_goodbye_simple",
-        "history": [],
-        "user": "goodbye",
-        "expect_intent": "END_DIALOGUE",
-        "expect_slots": {},
-        "purpose": "End: simple goodbye"
-    },
-    {
-        "name": "20_goodbye_thanks",
-        "history": [
-            {"role": "assistant", "content": "Your flight is booked!"}
-        ],
-        "user": "Thanks, that's all I needed",
-        "expect_intent": "END_DIALOGUE",
-        "expect_slots": {},
-        "purpose": "End: thanks and closure"
-    },
-
-    # ==========================================================================
-    # OOD (Out of Domain) - FALLBACK POLICY TESTS
-    # ==========================================================================
-    
-    {
-        "name": "21_ood_weather",
-        "history": [],
-        "user": "What's the weather like in Paris?",
-        "expect_intent": "OOD",
-        "expect_slots": {},
-        "purpose": "OOD/Fallback: weather question"
-    },
-    {
-        "name": "22_ood_random",
-        "history": [],
-        "user": "Tell me a joke",
-        "expect_intent": "OOD",
-        "expect_slots": {},
-        "purpose": "OOD/Fallback: unrelated request"
-    },
-    {
-        "name": "23_ood_unclear",
-        "history": [],
-        "user": "maybe something",
-        "expect_intent": "OOD",
-        "expect_slots": {},
-        "purpose": "OOD/Fallback: vague unclear input"
-    },
-
-    # ==========================================================================
-    # MIXED INITIATIVE - User provides info unprompted
-    # ==========================================================================
-    
-    {
-        "name": "24_mixed_initiative_all_at_once",
-        "history": [],
-        "user": "I want to fly from New York to Tokyo on December 1st for 2 passengers with a high budget",
-        "expect_intent": "BOOK_FLIGHT",
-        "expect_slots": {
-            "origin": NOT_NONE,
-            "destination": "Tokyo",
-            "departure_date": NOT_NONE,
-            "num_passengers": 2,
-            "budget_level": "high"
-        },
-        "purpose": "Mixed initiative: user provides all info unprompted"
-    },
-    {
-        "name": "25_mixed_initiative_switch_intent",
-        "history": [
-            {"role": "user", "content": "I want to book a flight to Madrid"},
-            {"role": "assistant", "content": "Where are you departing from?"}
-        ],
-        "user": "Actually, I also need a hotel there from March 5 to March 10",
-        "expect_intent": "BOOK_ACCOMMODATION",
-        "expect_slots": {
-            "destination": "Madrid",
-            "check_in_date": NOT_NONE,
-            "check_out_date": NOT_NONE
-        },
-        "purpose": "Mixed initiative: user switches to new intent"
-    },
-
-    # ==========================================================================
-    # NOISE & ROBUSTNESS
-    # ==========================================================================
-    
-    {
-        "name": "26_noise_typos",
-        "history": [],
-        "user": "I wnat to book a flihgt to Barselona",
-        "expect_intent": "BOOK_FLIGHT",
-        "expect_slots": {
-            "destination": NOT_NONE
-        },
-        "purpose": "Robustness: spelling errors"
-    },
-    {
-        "name": "27_noise_filler_words",
-        "history": [],
-        "user": "um so like I kind of want to maybe find a hotel in uh Vienna you know",
-        "expect_intent": "BOOK_ACCOMMODATION",
-        "expect_slots": {
-            "destination": "Vienna"
-        },
-        "purpose": "Robustness: filler words"
-    },
-    {
-        "name": "28_noise_informal",
-        "history": [],
-        "user": "yo I need to bounce to Berlin next week, hook me up with some flights",
-        "expect_intent": "BOOK_FLIGHT",
-        "expect_slots": {
-            "destination": "Berlin"
-        },
-        "purpose": "Robustness: informal/slang language"
-    },
-]
+@dataclass
+class CaseResult:
+    """Result of evaluating a single (intent, slots) prediction."""
+    case_id: str
+    information_type: str
+    intent_correct: bool
+    expected_intent: str
+    predicted_intent: str
+    slot_tp: int = 0          # exact (name, value) matches
+    slot_fp: int = 0          # predicted but wrong or extra
+    slot_fn: int = 0          # in ground truth but missing / wrong
+    exact_match: bool = False # intent correct AND all slots correct
 
 
-# -------------------------
-# Statistics tracking
-# -------------------------
+def _compare_single(
+    expected_intent: str,
+    expected_slots: Dict[str, Any],
+    predicted_intent: str,
+    predicted_slots: Dict[str, Any],
+) -> Tuple[bool, int, int, int, bool]:
+    """
+    Compare a single (intent, slots) prediction against ground truth.
 
-class TestStatistics:
-    def __init__(self):
-        self.results = []
-        self.intent_confusion = defaultdict(lambda: defaultdict(int))
-        
-    def add_result(self, test_name: str, expected_intent: str, got_intent: str, 
-                   intent_ok: bool, schema_ok: bool, slots_ok: bool, mode: str):
-        self.results.append({
-            "test": test_name,
-            "expected_intent": expected_intent,
-            "got_intent": got_intent,
-            "intent_ok": intent_ok,
-            "schema_ok": schema_ok,
-            "slots_ok": slots_ok,
-            "mode": mode,
-            "passed": intent_ok and schema_ok and slots_ok
+    Slot comparison rules:
+    - Slot name must match exactly.
+    - Slot value must match exactly (case-insensitive after normalization).
+    - No partial credit for incorrect values.
+
+    Returns (intent_ok, tp, fp, fn, exact_match).
+    """
+    intent_ok = (predicted_intent == expected_intent)
+
+    gt = _non_null_slots(expected_slots)
+    pred = _non_null_slots(predicted_slots)
+
+    tp = fp = fn = 0
+
+    # True positives & false negatives
+    for slot_name, gt_val in gt.items():
+        pred_val = pred.get(slot_name)
+        if pred_val is not None and pred_val == gt_val:
+            tp += 1
+        else:
+            fn += 1
+
+    # False positives: predicted slots not in ground truth or with wrong value
+    for slot_name, pred_val in pred.items():
+        if slot_name not in gt:
+            fp += 1
+        elif _normalize(gt[slot_name]) != pred_val:
+            # Value mismatch — already counted as fn; also counts as fp
+            fp += 1
+
+    exact = intent_ok and (fp == 0) and (fn == 0)
+    return intent_ok, tp, fp, fn, exact
+
+# ---------------------------------------------------------------------------
+# Metrics aggregator
+# ---------------------------------------------------------------------------
+
+@dataclass
+class Metrics:
+    """Accumulates evaluation metrics across test cases."""
+    single_results: List[CaseResult] = field(default_factory=list)
+    multi_results: List[Dict[str, Any]] = field(default_factory=list)
+
+    def add_single(self, result: CaseResult):
+        self.single_results.append(result)
+
+    def add_multi(self, case_id: str, info_type: str,
+                  per_intent_results: List[CaseResult], order_correct: bool):
+        self.multi_results.append({
+            "case_id": case_id,
+            "information_type": info_type,
+            "per_intent": per_intent_results,
+            "order_correct": order_correct,
         })
-        self.intent_confusion[expected_intent][got_intent] += 1
-    
-    def get_per_intent_stats(self, mode: str) -> Dict:
-        """Calculate precision, recall, F1 per intent for a given mode"""
-        mode_results = [r for r in self.results if r["mode"] == mode]
-        
-        stats = {}
-        for intent in INTENTS:
-            tp = sum(1 for r in mode_results if r["expected_intent"] == intent and r["got_intent"] == intent)
-            fp = sum(1 for r in mode_results if r["expected_intent"] != intent and r["got_intent"] == intent)
-            fn = sum(1 for r in mode_results if r["expected_intent"] == intent and r["got_intent"] != intent)
-            
-            precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-            recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-            f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-            
-            stats[intent] = {
-                "precision": precision,
-                "recall": recall,
-                "f1": f1,
-                "support": tp + fn
-            }
-        
-        return stats
-    
-    def get_overall_accuracy(self, mode: str) -> float:
-        mode_results = [r for r in self.results if r["mode"] == mode]
-        if not mode_results:
-            return 0.0
-        passed = sum(1 for r in mode_results if r["passed"])
-        return passed / len(mode_results)
-    
-    def print_report(self, mode: str):
-        print(f"\n{'='*90}")
-        print(f"DETAILED REPORT FOR MODE: {mode}")
-        print(f"{'='*90}")
-        
-        # Overall accuracy
-        accuracy = self.get_overall_accuracy(mode)
-        print(f"\nOverall Accuracy: {accuracy:.2%}")
-        
-        # Per-intent statistics
-        stats = self.get_per_intent_stats(mode)
-        print(f"\nPer-Intent Statistics:")
-        print(f"{'Intent':<25} {'Precision':>10} {'Recall':>10} {'F1':>10} {'Support':>10}")
-        print("-" * 70)
-        
-        for intent in sorted(stats.keys()):
-            s = stats[intent]
-            if s["support"] > 0:
-                print(f"{intent:<25} {s['precision']:>10.2%} {s['recall']:>10.2%} {s['f1']:>10.2%} {s['support']:>10}")
-        
-        # Confusion matrix
-        print(f"\nConfusion Matrix (Expected → Got):")
-        print(f"{'Expected':<20}", end="")
-        for intent in sorted(INTENTS):
-            print(f"{intent[:8]:>10}", end="")
-        print()
-        print("-" * 100)
-        
-        for expected in sorted(INTENTS):
-            if expected in self.intent_confusion:
-                print(f"{expected:<20}", end="")
-                for got in sorted(INTENTS):
-                    count = self.intent_confusion[expected].get(got, 0)
-                    print(f"{count:>10}", end="")
-                print()
+
+    # --- aggregation helpers ---
+
+    @staticmethod
+    def _agg(results: List[CaseResult]):
+        total = len(results)
+        intent_correct = sum(r.intent_correct for r in results)
+        exact_match = sum(r.exact_match for r in results)
+        tp = sum(r.slot_tp for r in results)
+        fp = sum(r.slot_fp for r in results)
+        fn = sum(r.slot_fn for r in results)
+        return total, intent_correct, exact_match, tp, fp, fn
+
+    @staticmethod
+    def _prf(tp: int, fp: int, fn: int):
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+        return precision, recall, f1
+
+    # --- printing ---
+
+    def print_summary(self):
+        self._print_single_summary()
+        self._print_per_type_summary()
+        self._print_per_intent_summary()
+        self._print_multi_summary()
+        self._print_overall_summary()
+
+    def _print_single_summary(self):
+        total, ic, em, tp, fp, fn = self._agg(self.single_results)
+        p, r, f1 = self._prf(tp, fp, fn)
+
+        print("\n" + "=" * 80)
+        print("SINGLE-INTENT EVALUATION")
+        print("=" * 80)
+        print(f"  Total test cases      : {total}")
+        if total:
+            print(f"  Intent Accuracy       : {ic}/{total}  ({ic/total:.2%})")
+            print(f"  Exact Match Accuracy  : {em}/{total}  ({em/total:.2%})")
+        print(f"  Slot Precision        : {p:.4f}")
+        print(f"  Slot Recall           : {r:.4f}")
+        print(f"  Slot F1               : {f1:.4f}")
+        print(f"  (TP={tp}  FP={fp}  FN={fn})")
+
+    def _print_per_type_summary(self):
+        print("\n" + "-" * 80)
+        print("BREAKDOWN BY information_type (single-intent)")
+        print("-" * 80)
+        by_type: Dict[str, List[CaseResult]] = defaultdict(list)
+        for r in self.single_results:
+            by_type[r.information_type].append(r)
+
+        header = f"{'Type':<22} {'#':>4} {'IntAcc':>8} {'ExactM':>8} {'SlotP':>8} {'SlotR':>8} {'SlotF1':>8}"
+        print(header)
+        print("-" * len(header))
+        for info_type in sorted(by_type):
+            results = by_type[info_type]
+            total, ic, em, tp, fp, fn = self._agg(results)
+            p, r, f1 = self._prf(tp, fp, fn)
+            int_acc = ic / total if total else 0
+            ex_acc = em / total if total else 0
+            print(f"{info_type:<22} {total:>4} {int_acc:>8.2%} {ex_acc:>8.2%} {p:>8.4f} {r:>8.4f} {f1:>8.4f}")
+
+    def _print_per_intent_summary(self):
+        print("\n" + "-" * 80)
+        print("BREAKDOWN BY INTENT (single-intent)")
+        print("-" * 80)
+
+        by_expected: Dict[str, List[CaseResult]] = defaultdict(list)
+        for r in self.single_results:
+            by_expected[r.expected_intent].append(r)
+
+        # Intent-classification P/R/F1
+        intent_tp: Dict[str, int] = defaultdict(int)
+        intent_fp: Dict[str, int] = defaultdict(int)
+        intent_fn: Dict[str, int] = defaultdict(int)
+
+        for r in self.single_results:
+            if r.predicted_intent == r.expected_intent:
+                intent_tp[r.expected_intent] += 1
+            else:
+                intent_fn[r.expected_intent] += 1
+                intent_fp[r.predicted_intent] += 1
+
+        header = f"{'Intent':<25} {'Supp':>5} {'IntP':>8} {'IntR':>8} {'IntF1':>8} {'SlotF1':>8} {'ExactM':>8}"
+        print(header)
+        print("-" * len(header))
+
+        for intent in sorted(set(r.expected_intent for r in self.single_results)):
+            supp = len(by_expected[intent])
+            tp_i = intent_tp[intent]
+            fp_i = intent_fp.get(intent, 0)
+            fn_i = intent_fn[intent]
+            p_i = tp_i / (tp_i + fp_i) if (tp_i + fp_i) else 0
+            r_i = tp_i / (tp_i + fn_i) if (tp_i + fn_i) else 0
+            f1_i = 2 * p_i * r_i / (p_i + r_i) if (p_i + r_i) else 0
+
+            _, _, _, stp, sfp, sfn = self._agg(by_expected[intent])
+            _, _, sf1 = self._prf(stp, sfp, sfn)
+
+            em_count = sum(r.exact_match for r in by_expected[intent])
+            em_rate = em_count / supp if supp else 0
+
+            print(f"{intent:<25} {supp:>5} {p_i:>8.2%} {r_i:>8.2%} {f1_i:>8.4f} {sf1:>8.4f} {em_rate:>8.2%}")
+
+    def _print_multi_summary(self):
+        if not self.multi_results:
+            return
+
+        print("\n" + "=" * 80)
+        print("MULTI-INTENT EVALUATION")
+        print("=" * 80)
+
+        total = len(self.multi_results)
+        order_correct = sum(m["order_correct"] for m in self.multi_results)
+
+        all_per_intent: List[CaseResult] = []
+        for m in self.multi_results:
+            all_per_intent.extend(m["per_intent"])
+
+        n_intents = len(all_per_intent)
+        _, ic, em, tp, fp, fn = self._agg(all_per_intent)
+        p, r, f1 = self._prf(tp, fp, fn)
+
+        fully_correct = sum(
+            1 for m in self.multi_results
+            if m["order_correct"] and all(cr.exact_match for cr in m["per_intent"])
+        )
+
+        print(f"  Total multi-intent cases        : {total}")
+        print(f"  Total sub-intents evaluated      : {n_intents}")
+        if n_intents:
+            print(f"  Intent Accuracy (per sub-intent) : {ic}/{n_intents}  ({ic/n_intents:.2%})")
+        if total:
+            print(f"  Order-correct cases              : {order_correct}/{total}  ({order_correct/total:.2%})")
+            print(f"  Fully correct cases              : {fully_correct}/{total}  ({fully_correct/total:.2%})")
+        print(f"  Slot Precision (sub-intents)     : {p:.4f}")
+        print(f"  Slot Recall    (sub-intents)     : {r:.4f}")
+        print(f"  Slot F1        (sub-intents)     : {f1:.4f}")
+        print(f"  (TP={tp}  FP={fp}  FN={fn})")
+
+    def _print_overall_summary(self):
+        all_results = list(self.single_results)
+        for m in self.multi_results:
+            all_results.extend(m["per_intent"])
+
+        total, ic, em, tp, fp, fn = self._agg(all_results)
+        p, r, f1 = self._prf(tp, fp, fn)
+
+        print("\n" + "=" * 80)
+        print("OVERALL SUMMARY (single + multi sub-intents)")
+        print("=" * 80)
+        print(f"  Total evaluated        : {total}")
+        if total:
+            print(f"  Intent Accuracy        : {ic}/{total}  ({ic/total:.2%})")
+            print(f"  Exact Match Accuracy   : {em}/{total}  ({em/total:.2%})")
+        print(f"  Slot Precision         : {p:.4f}")
+        print(f"  Slot Recall            : {r:.4f}")
+        print(f"  Slot F1                : {f1:.4f}")
+
+    # --- export to JSON ---
+
+    def to_dict(self) -> Dict[str, Any]:
+        all_results = list(self.single_results)
+        for m in self.multi_results:
+            all_results.extend(m["per_intent"])
+        total, ic, em, tp, fp, fn = self._agg(all_results)
+        p, r, f1 = self._prf(tp, fp, fn)
+
+        return {
+            "overall": {
+                "total": total,
+                "intent_accuracy": ic / total if total else 0,
+                "exact_match_accuracy": em / total if total else 0,
+                "slot_precision": p,
+                "slot_recall": r,
+                "slot_f1": f1,
+            },
+            "single_intent": [
+                {
+                    "id": cr.case_id,
+                    "type": cr.information_type,
+                    "intent_correct": cr.intent_correct,
+                    "exact_match": cr.exact_match,
+                    "expected_intent": cr.expected_intent,
+                    "predicted_intent": cr.predicted_intent,
+                }
+                for cr in self.single_results
+            ],
+            "multi_intent": [
+                {
+                    "id": m["case_id"],
+                    "order_correct": m["order_correct"],
+                    "per_intent": [
+                        {
+                            "intent_correct": cr.intent_correct,
+                            "exact_match": cr.exact_match,
+                            "expected_intent": cr.expected_intent,
+                            "predicted_intent": cr.predicted_intent,
+                        }
+                        for cr in m["per_intent"]
+                    ],
+                }
+                for m in self.multi_results
+            ],
+        }
+
+# ---------------------------------------------------------------------------
+# Evaluation runners
+# ---------------------------------------------------------------------------
+
+def evaluate_single(pipe, case: Dict[str, Any], verbose: bool = False) -> CaseResult:
+    """Evaluate a single-intent test case."""
+    case_id = case["id"]
+    info_type = case["information_type"]
+    utterance = case["utterance"]
+    gt = case["ground_truth"]
+    expected_intent = gt["intent"]
+    expected_slots = gt.get("slots", {})
+
+    nlu_out = _call_nlu(pipe, utterance)
+    predicted_intent = nlu_out.get("intent", "OOD")
+    predicted_slots = nlu_out.get("slots", {})
+
+    intent_ok, tp, fp, fn, exact = _compare_single(
+        expected_intent, expected_slots,
+        predicted_intent, predicted_slots,
+    )
+
+    result = CaseResult(
+        case_id=case_id,
+        information_type=info_type,
+        intent_correct=intent_ok,
+        expected_intent=expected_intent,
+        predicted_intent=predicted_intent,
+        slot_tp=tp, slot_fp=fp, slot_fn=fn,
+        exact_match=exact,
+    )
+
+    if verbose:
+        mark = "✓" if exact else ("~" if intent_ok else "✗")
+        print(f"  [{mark}] {case_id:<35} expected={expected_intent:<22} got={predicted_intent:<22} EM={exact}")
+        if not exact:
+            gt_disp = _non_null_slots(expected_slots)
+            pred_disp = _non_null_slots(predicted_slots)
+            print(f"       gt_slots  = {gt_disp}")
+            print(f"       pred_slots= {pred_disp}")
+
+    return result
 
 
-# -------------------------
-# Runner: history ablation
-# -------------------------
+def evaluate_multi(pipe, case: Dict[str, Any], verbose: bool = False) -> Tuple[List[CaseResult], bool]:
+    """
+    Evaluate a multi-intent test case.
 
-ABLATION_MODES = [
-    ("full", None),     # use full history
-    ("last2", 2),       # keep only last 2 turns
-    ("last6", 6),       # keep last 6 turns
-    ("none", 0),        # no history
-]
+    Uses the intent_splitter to split the utterance, then runs NLU on each part.
+    Compares predictions to ground truth in order (order must match).
+    """
+    case_id = case["id"]
+    utterance = case["utterance"]
+    gt_list: List[Dict[str, Any]] = case["ground_truth"]
+    expected_count = len(gt_list)
 
+    # Split using the LLM-based intent splitter
+    first_sentence, pending = split_intents(pipe, utterance)
+    all_sentences = [first_sentence] + pending
 
-def _slice_history(history: List[Dict[str, str]], k: int | None) -> List[Dict[str, str]]:
-    if k is None:
-        return history
-    if k <= 0:
-        return []
-    return history[-k:]
+    # Run NLU on each split sentence
+    predictions = []
+    for sentence in all_sentences:
+        nlu_out = _call_nlu(pipe, sentence)
+        predictions.append(nlu_out)
 
+    # Compare in order: pad with empty predictions if splitter returned fewer
+    per_intent_results: List[CaseResult] = []
+    order_correct = True
 
-def run_ablation_tests():
+    for i, gt in enumerate(gt_list):
+        expected_intent = gt["intent"]
+        expected_slots = gt.get("slots", {})
+
+        if i < len(predictions):
+            pred = predictions[i]
+            predicted_intent = pred.get("intent", "OOD")
+            predicted_slots = pred.get("slots", {})
+        else:
+            predicted_intent = "__MISSING__"
+            predicted_slots = {}
+
+        intent_ok, tp, fp, fn, exact = _compare_single(
+            expected_intent, expected_slots,
+            predicted_intent, predicted_slots,
+        )
+
+        if not intent_ok:
+            order_correct = False
+
+        cr = CaseResult(
+            case_id=f"{case_id}[{i}]",
+            information_type="multi_intent",
+            intent_correct=intent_ok,
+            expected_intent=expected_intent,
+            predicted_intent=predicted_intent,
+            slot_tp=tp, slot_fp=fp, slot_fn=fn,
+            exact_match=exact,
+        )
+        per_intent_results.append(cr)
+
+    # If splitter produced more or fewer sentences than expected, order is wrong
+    if len(predictions) != expected_count:
+        order_correct = False
+
+    if verbose:
+        all_exact = all(cr.exact_match for cr in per_intent_results)
+        mark = "✓" if (order_correct and all_exact) else "✗"
+        print(f"  [{mark}] {case_id:<35} split={len(all_sentences)}  expected={expected_count}  order_ok={order_correct}")
+        for i, cr in enumerate(per_intent_results):
+            sub_mark = "✓" if cr.exact_match else "✗"
+            print(f"       [{sub_mark}] sub-intent {i}: expected={cr.expected_intent:<22} got={cr.predicted_intent:<22} EM={cr.exact_match}")
+
+    return per_intent_results, order_correct
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def run_evaluation(verbose: bool = False):
+    # Load test cases
+    print(f"Loading test cases from {UTTERANCES_FILE} ...")
+    with open(UTTERANCES_FILE, "r", encoding="utf-8") as f:
+        test_cases = json.load(f)
+    print(f"Loaded {len(test_cases)} test cases.\n")
+
+    # Separate single vs multi
+    single_cases = [tc for tc in test_cases if not isinstance(tc["ground_truth"], list)]
+    multi_cases = [tc for tc in test_cases if isinstance(tc["ground_truth"], list)]
+    print(f"  Single-intent : {len(single_cases)}")
+    print(f"  Multi-intent  : {len(multi_cases)}\n")
+
+    # Load LLM
+    print("Loading LLM pipeline ...")
     pipe = make_llm()
-    
-    stats_per_mode = {mode: TestStatistics() for mode, _ in ABLATION_MODES}
-    summary = {mode: {"pass": 0, "total": 0} for mode, _ in ABLATION_MODES}
+    if pipe is None:
+        print("ERROR: Could not load LLM pipeline. Aborting.")
+        sys.exit(1)
+    print("LLM loaded.\n")
 
-    for t in TEST_DIALOGUES:
-        print("=" * 90)
-        print(f"TEST: {t['name']} — {t['purpose']}")
-        print(f"USER: {t['user']}")
-        print(f"EXPECT: intent={t['expect_intent']} slots={t['expect_slots']}")
-        print("-" * 90)
+    metrics = Metrics()
 
-        for mode, k in ABLATION_MODES:
-            hist = _slice_history(t["history"], k)
-            nlu = _call_nlu(pipe, t["user"], hist)
+    # --- Single-intent evaluation ---
+    print("=" * 80)
+    print("EVALUATING SINGLE-INTENT CASES")
+    print("=" * 80)
+    for case in single_cases:
+        result = evaluate_single(pipe, case, verbose=verbose)
+        metrics.add_single(result)
 
-            got_intent = nlu.get("intent")
-            got_slots = nlu.get("slots") or {}
+    # --- Multi-intent evaluation ---
+    if multi_cases:
+        print("\n" + "=" * 80)
+        print("EVALUATING MULTI-INTENT CASES")
+        print("=" * 80)
+        for case in multi_cases:
+            per_intent, order_ok = evaluate_multi(pipe, case, verbose=verbose)
+            metrics.add_multi(case["id"], "multi_intent", per_intent, order_ok)
 
-            intent_ok = (got_intent == t["expect_intent"])
-            schema_ok, schema_msg = _check_schema_keys(t["expect_intent"], got_slots) if intent_ok else (False, "Skipped (intent mismatch)")
-            slots_ok, slots_msg = _check_expected_slots(t["expect_slots"], got_slots) if intent_ok else (False, "Skipped (intent mismatch)")
+    # --- Print summary ---
+    metrics.print_summary()
 
-            ok = intent_ok and schema_ok and slots_ok
-
-            summary[mode]["total"] += 1
-            summary[mode]["pass"] += int(ok)
-            
-            stats_per_mode[mode].add_result(
-                t["name"], t["expect_intent"], got_intent,
-                intent_ok, schema_ok, slots_ok, mode
-            )
-
-            print(f"[{mode:5}] {'✓ PASS' if ok else '✗ FAIL'}")
-            print(f"  got intent: {got_intent}")
-            print(f"  got slots : {got_slots}")
-            if not intent_ok:
-                print(f"  reason   : intent mismatch (expected {t['expect_intent']})")
-            elif not schema_ok:
-                print(f"  reason   : {schema_msg}")
-            elif not slots_ok:
-                print(f"  reason   : {slots_msg}")
-            print()
-
-    # Print summary
-    print("\n" + "=" * 90)
-    print("SUMMARY (by history ablation mode)")
-    print("=" * 90)
-    for mode in summary:
-        p = summary[mode]["pass"]
-        tot = summary[mode]["total"]
-        pct = (p / tot * 100) if tot > 0 else 0
-        print(f"- {mode:5}: {p:3d}/{tot:3d} passed ({pct:5.1f}%)")
-    
-    # Print detailed reports for each mode
-    for mode, _ in ABLATION_MODES:
-        stats_per_mode[mode].print_report(mode)
-    
-    # Save results to JSON
-    results_file = "nlu_test_results.json"
-    with open(results_file, "w") as f:
-        json.dump({
-            "summary": summary,
-            "detailed_results": [r for stats in stats_per_mode.values() for r in stats.results]
-        }, f, indent=2)
-    print(f"\nDetailed results saved to: {results_file}")
+    # --- Save results ---
+    results_path = os.path.join(os.path.dirname(__file__), "nlu_test_results.json")
+    with open(results_path, "w", encoding="utf-8") as f:
+        json.dump(metrics.to_dict(), f, indent=2)
+    print(f"\nDetailed results saved to: {results_path}")
 
 
 if __name__ == "__main__":
-    run_ablation_tests()
+    parser = argparse.ArgumentParser(description="NLU Evaluation")
+    parser.add_argument("--verbose", "-v", action="store_true",
+                        help="Print per-case details")
+    args = parser.parse_args()
+    run_evaluation(verbose=args.verbose)
