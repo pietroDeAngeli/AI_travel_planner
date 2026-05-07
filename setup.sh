@@ -22,28 +22,29 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 info "Working directory: $PWD"
 
-# ── 2. Set up conda environment with Python 3.10 ─────────────
-ENV_NAME="travel_planner"
+# ── 2. Find Python 3.10 and create a venv ────────────────────
+VENV_DIR="$SCRIPT_DIR/.venv"
 
-# Initialise conda so that 'conda activate' works in this shell
-if ! command -v conda &>/dev/null; then
-    error "conda not found. Use a RunPod template that includes Miniconda/Anaconda."
+# Prefer python3.10 explicitly, fall back to python3 / python
+if   command -v python3.10 &>/dev/null; then BASE_PYTHON=$(command -v python3.10)
+elif command -v python3    &>/dev/null; then BASE_PYTHON=$(command -v python3)
+elif command -v python     &>/dev/null; then BASE_PYTHON=$(command -v python)
+else
+    error "No Python interpreter found. Use a RunPod template that includes Python 3.10."
     exit 1
 fi
+info "Base interpreter: $($BASE_PYTHON --version)"
 
-# Source conda init so 'conda activate' is available
-# shellcheck disable=SC1091
-source "$(conda info --base)/etc/profile.d/conda.sh"
-
-if conda env list | grep -q "^${ENV_NAME} "; then
-    info "Conda env '${ENV_NAME}' already exists, skipping creation."
+if [ ! -d "$VENV_DIR" ]; then
+    info "Creating virtual environment in .venv …"
+    $BASE_PYTHON -m venv "$VENV_DIR"
 else
-    info "Creating conda env '${ENV_NAME}' with Python 3.10…"
-    conda create -y -n "$ENV_NAME" python=3.10
+    info "Virtual environment .venv already exists, skipping creation."
 fi
 
-info "Activating conda env '${ENV_NAME}'…"
-conda activate "$ENV_NAME"
+info "Activating virtual environment…"
+# shellcheck disable=SC1091
+source "$VENV_DIR/bin/activate"
 
 PYTHON=$(command -v python)
 info "Using Python: $($PYTHON --version)"
