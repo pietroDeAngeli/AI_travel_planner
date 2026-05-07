@@ -13,13 +13,11 @@ Metrics:
 - End-to-End Response Appropriateness
 """
 
-import json
-import random
 import copy
-from typing import Any, Dict, List, Tuple, Optional
+import json
+from typing import Any, Dict, List, Optional, Tuple
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
 from tqdm import tqdm
 
 import sys
@@ -31,712 +29,688 @@ from llm import make_llm
 from nlu import nlu_parse
 from dm import DialogueState, dm_decide, dm_decide_rule_based, state_context
 from nlg import nlg_generate
-from intent_splitter import split_intents, has_multiple_intents, IntentQueue
-from schema import (
-    INTENT_SCHEMAS, INTENT_SLOTS, INTENTS, DM_ACTIONS,
-    ACTIVITY_CATEGORIES, BUDGET_LEVELS, parse_action
-)
+from intent_splitter import split_intents, IntentQueue
+from schema import (parse_action)
 
 
-# --- Template-based dialogue generation ---
-
-# Slot value pools for template filling
-CITIES = [
-    "Rome", "Paris", "London", "Barcelona", "Berlin", "Amsterdam",
-    "Vienna", "Prague", "Madrid", "Milan", "Florence", "Venice",
-    "Athens", "Lisbon", "Dublin", "Brussels", "Munich", "Zurich"
-]
-
-DATES_FUTURE = [
-    (datetime.now() + timedelta(days=d)).strftime("%Y-%m-%d")
-    for d in [30, 45, 60, 75, 90, 120, 150, 180]
-]
-
-NUM_PASSENGERS = [1, 2, 3, 4, 5]
-NUM_GUESTS = [1, 2, 3, 4]
-
-ACTIVITY_TYPES = list(ACTIVITY_CATEGORIES.keys())
-
-
-# --- User utterance templates ---
-
-FLIGHT_TEMPLATES = {
-    "full": [
-        "Book a flight from {origin} to {destination} on {departure_date} for {num_passengers} passengers, {budget_level} budget",
-        "I need to fly from {origin} to {destination} on {departure_date}, {num_passengers} people, {budget_level} budget please",
-        "Flight from {origin} to {destination}, departing {departure_date}, {num_passengers} travelers, {budget_level} budget",
-    ],
-    "partial_dest_only": [
-        "I want to fly to {destination}",
-        "Book a flight to {destination}",
-        "I need a flight to {destination}",
-    ],
-    "partial_origin_dest": [
-        "Flight from {origin} to {destination}",
-        "I want to fly from {origin} to {destination}",
-        "Book a flight from {origin} to {destination} please",
-    ],
-    "slot_origin": [
-        "From {origin}",
-        "{origin}",
-        "Departing from {origin}",
-    ],
-    "slot_destination": [
-        "To {destination}",
-        "{destination}",
-        "Going to {destination}",
-    ],
-    "slot_date": [
-        "On {departure_date}",
-        "{departure_date}",
-        "Departing {departure_date}",
-    ],
-    "slot_passengers": [
-        "{num_passengers} passengers",
-        "{num_passengers} people",
-        "For {num_passengers}",
-    ],
-    "slot_budget": [
-        "{budget_level} budget",
-        "{budget_level}",
-        "Budget is {budget_level}",
-    ],
-}
-
-ACCOMMODATION_TEMPLATES = {
-    "full": [
-        "Book a hotel in {destination} from {check_in_date} to {check_out_date} for {num_guests} guests, {budget_level} budget",
-        "I need accommodation in {destination}, check in {check_in_date}, check out {check_out_date}, {num_guests} guests, {budget_level}",
-    ],
-    "partial_dest_only": [
-        "I need a hotel in {destination}",
-        "Find me accommodation in {destination}",
-        "Book a hotel in {destination}",
-    ],
-    "slot_destination": [
-        "In {destination}",
-        "{destination}",
-    ],
-    "slot_dates": [
-        "From {check_in_date} to {check_out_date}",
-        "Check in {check_in_date}, check out {check_out_date}",
-    ],
-    "slot_guests": [
-        "{num_guests} guests",
-        "For {num_guests} people",
-    ],
-    "slot_budget": [
-        "{budget_level} budget",
-        "{budget_level}",
-    ],
-}
-
-ACTIVITY_TEMPLATES = {
-    "full": [
-        "Book a {activity_category} activity in {destination}, {budget_level} budget",
-        "I want to do something {activity_category} in {destination}, budget {budget_level}",
-    ],
-    "partial_dest_only": [
-        "I want to do something in {destination}",
-        "Find activities in {destination}",
-    ],
-    "partial_dest_category": [
-        "I want a {activity_category} activity in {destination}",
-        "{activity_category} things to do in {destination}",
-    ],
-    "slot_destination": [
-        "In {destination}",
-        "{destination}",
-    ],
-    "slot_category": [
-        "{activity_category}",
-        "Something {activity_category}",
-    ],
-    "slot_budget": [
-        "{budget_level}",
-        "{budget_level} budget",
-    ],
-}
-
-COMPARE_CITIES_TEMPLATES = {
-    "full": [
-        "Compare {city1} and {city2} for {activity_category}",
-        "Which is better for {activity_category}, {city1} or {city2}?",
-    ],
-    "partial_cities_only": [
-        "Compare {city1} and {city2}",
-    ],
-    "slot_city1": [
-        "{city1}",
-    ],
-    "slot_city2": [
-        "{city2}",
-    ],
-    "slot_category": [
-        "{activity_category}",
-        "For {activity_category}",
-    ],
-}
-
-CONFIRMATION_TEMPLATES = {
-    "yes": ["Yes", "Yes please", "Confirm", "That's correct", "Looks good", "Perfect"],
-    "no": ["No", "No, I want to change something", "Not quite", "Change it"],
-}
-
-# Multi-intent templates for testing the intent splitter
-MULTI_INTENT_TEMPLATES = [
-    {
-        "template": "Book a flight to {destination} and find me a hotel there",
-        "intents": ["BOOK_FLIGHT", "BOOK_ACCOMMODATION"],
-        "slots_per_intent": [
-            {"destination": "{destination}"},
-            {"destination": "{destination}"},
-        ],
-    },
-    {
-        "template": "I need to fly to {destination}. Also, can you show me some {activity_category} activities?",
-        "intents": ["BOOK_FLIGHT", "BOOK_ACTIVITY"],
-        "slots_per_intent": [
-            {"destination": "{destination}"},
-            {"destination": "{destination}", "activity_category": "{activity_category}"},
-        ],
-    },
-    {
-        "template": "Book a hotel in {destination} and I'd like to do something {activity_category} as well",
-        "intents": ["BOOK_ACCOMMODATION", "BOOK_ACTIVITY"],
-        "slots_per_intent": [
-            {"destination": "{destination}"},
-            {"destination": "{destination}", "activity_category": "{activity_category}"},
-        ],
-    },
-    {
-        "template": "I want to go to {destination}. Book flights, find a hotel, and show me {activity_category} things to do",
-        "intents": ["BOOK_FLIGHT", "BOOK_ACCOMMODATION", "BOOK_ACTIVITY"],
-        "slots_per_intent": [
-            {"destination": "{destination}"},
-            {"destination": "{destination}"},
-            {"destination": "{destination}", "activity_category": "{activity_category}"},
-        ],
-    },
-]
-
-END_DIALOGUE_TEMPLATES = [
-    "Goodbye", "Thanks, bye", "That's all", "I'm done", "Thank you, goodbye"
-]
-
+# =============================================================================
+# DATA CLASSES
+# =============================================================================
 
 @dataclass
 class GeneratedDialogue:
-    """A synthetically generated dialogue for testing."""
+    """A dialogue instance for evaluation."""
     name: str
     intent: str
-    generation_method: str  # "template", "llm", or "multi_intent"
-    turns: List[Dict[str, Any]]  # Each turn: {user_utterance, expected_slots, expected_action}
+    generation_method: str  # "static", "template", "llm", etc.
+    turns: List[Dict[str, Any]]  # Each turn: {user_utterance, provided_slots, expected_action}
     expected_final_slots: Dict[str, Any]
     expected_task_success: bool
-    is_multi_intent: bool = False  # True if this is a multi-intent dialogue
-    expected_intents: List[str] = field(default_factory=list)  # For multi-intent dialogues
+    is_multi_intent: bool = False
+    expected_intents: List[str] = field(default_factory=list)
 
 
-def generate_slot_values(intent: str) -> Dict[str, Any]:
-    """Generate random slot values for an intent."""
-    if intent == "BOOK_FLIGHT":
-        origin, dest = random.sample(CITIES, 2)
-        return {
-            "origin": origin,
-            "destination": dest,
-            "departure_date": random.choice(DATES_FUTURE),
-            "return_date": None,  # Optional
-            "num_passengers": random.choice(NUM_PASSENGERS),
-            "budget_level": random.choice(BUDGET_LEVELS),
-        }
-    elif intent == "BOOK_ACCOMMODATION":
-        check_in = random.choice(DATES_FUTURE)
-        check_in_dt = datetime.strptime(check_in, "%Y-%m-%d")
-        check_out = (check_in_dt + timedelta(days=random.randint(2, 7))).strftime("%Y-%m-%d")
-        return {
-            "destination": random.choice(CITIES),
-            "check_in_date": check_in,
-            "check_out_date": check_out,
-            "num_guests": random.choice(NUM_GUESTS),
-            "budget_level": random.choice(BUDGET_LEVELS),
-        }
-    elif intent == "BOOK_ACTIVITY":
-        return {
-            "destination": random.choice(CITIES),
-            "activity_category": random.choice(ACTIVITY_TYPES),
-            "budget_level": random.choice(BUDGET_LEVELS),
-        }
-    elif intent == "COMPARE_CITIES":
-        city1, city2 = random.sample(CITIES, 2)
-        return {
-            "city1": city1,
-            "city2": city2,
-            "activity_category": random.choice(ACTIVITY_TYPES),
-        }
-    return {}
+# =============================================================================
+# STATIC TEST DIALOGUES (NO RANDOM, NO LLM GENERATION)
+# =============================================================================
 
+def get_static_dialogues() -> List[GeneratedDialogue]:
+    """Return a fixed, deterministic set of evaluation dialogues."""
 
-def generate_template_dialogue_full(intent: str, idx: int) -> GeneratedDialogue:
-    """Generate a dialogue where user provides all info at once, then confirms."""
-    slots = generate_slot_values(intent)
-    
-    # Select template and fill
-    if intent == "BOOK_FLIGHT":
-        template = random.choice(FLIGHT_TEMPLATES["full"])
-        utterance = template.format(**slots)
-        required_slots = {k: v for k, v in slots.items() if v is not None and k != "return_date"}
-    elif intent == "BOOK_ACCOMMODATION":
-        template = random.choice(ACCOMMODATION_TEMPLATES["full"])
-        utterance = template.format(**slots)
-        required_slots = slots
-    elif intent == "BOOK_ACTIVITY":
-        template = random.choice(ACTIVITY_TEMPLATES["full"])
-        utterance = template.format(**slots)
-        required_slots = slots
-    elif intent == "COMPARE_CITIES":
-        template = random.choice(COMPARE_CITIES_TEMPLATES["full"])
-        utterance = template.format(**slots)
-        required_slots = slots
-    else:
-        return None
-    
-    # Build turns
-    turns = [
-        {
-            "user_utterance": utterance,
-            "provided_slots": required_slots,
-            "expected_action": "ASK_CONFIRMATION" if intent != "COMPARE_CITIES" else "COMPARE_CITIES_RESULT",
-        }
-    ]
-    
-    # Add confirmation turn for booking intents
-    if intent in ["BOOK_FLIGHT", "BOOK_ACCOMMODATION", "BOOK_ACTIVITY"]:
-        confirm_utterance = random.choice(CONFIRMATION_TEMPLATES["yes"])
-        completion_action = {
-            "BOOK_FLIGHT": "COMPLETE_FLIGHT_BOOKING",
-            "BOOK_ACCOMMODATION": "COMPLETE_ACCOMMODATION_BOOKING",
-            "BOOK_ACTIVITY": "COMPLETE_ACTIVITY_BOOKING",
-        }[intent]
-        turns.append({
-            "user_utterance": confirm_utterance,
-            "provided_slots": {"confirmation": "yes"},
-            "expected_action": completion_action,
-        })
-    
-    return GeneratedDialogue(
-        name=f"template_{intent.lower()}_{idx}_full",
-        intent=intent,
-        generation_method="template",
-        turns=turns,
-        expected_final_slots=required_slots,
-        expected_task_success=True,
-    )
-
-
-def generate_template_dialogue_incremental(intent: str, idx: int) -> GeneratedDialogue:
-    """Generate a dialogue with incremental slot filling."""
-    slots = generate_slot_values(intent)
-    turns = []
-    accumulated_slots = {}
-    
-    if intent == "BOOK_FLIGHT":
-        # Turn 1: destination only
-        utterance = random.choice(FLIGHT_TEMPLATES["partial_dest_only"]).format(destination=slots["destination"])
-        accumulated_slots["destination"] = slots["destination"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"destination": slots["destination"]},
-            "expected_action": "REQUEST_MISSING_SLOT(origin)",
-        })
-        
-        # Turn 2: origin
-        utterance = random.choice(FLIGHT_TEMPLATES["slot_origin"]).format(origin=slots["origin"])
-        accumulated_slots["origin"] = slots["origin"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"origin": slots["origin"]},
-            "expected_action": "REQUEST_MISSING_SLOT(departure_date)",
-        })
-        
-        # Turn 3: date
-        utterance = random.choice(FLIGHT_TEMPLATES["slot_date"]).format(departure_date=slots["departure_date"])
-        accumulated_slots["departure_date"] = slots["departure_date"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"departure_date": slots["departure_date"]},
-            "expected_action": "REQUEST_MISSING_SLOT(num_passengers)",
-        })
-        
-        # Turn 4: passengers
-        utterance = random.choice(FLIGHT_TEMPLATES["slot_passengers"]).format(num_passengers=slots["num_passengers"])
-        accumulated_slots["num_passengers"] = slots["num_passengers"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"num_passengers": slots["num_passengers"]},
-            "expected_action": "REQUEST_MISSING_SLOT(budget_level)",
-        })
-        
-        # Turn 5: budget
-        utterance = random.choice(FLIGHT_TEMPLATES["slot_budget"]).format(budget_level=slots["budget_level"])
-        accumulated_slots["budget_level"] = slots["budget_level"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"budget_level": slots["budget_level"]},
-            "expected_action": "ASK_CONFIRMATION",
-        })
-        
-        # Turn 6: confirm
-        turns.append({
-            "user_utterance": random.choice(CONFIRMATION_TEMPLATES["yes"]),
-            "provided_slots": {"confirmation": "yes"},
-            "expected_action": "COMPLETE_FLIGHT_BOOKING",
-        })
-        
-    elif intent == "BOOK_ACCOMMODATION":
-        # Turn 1: destination
-        utterance = random.choice(ACCOMMODATION_TEMPLATES["partial_dest_only"]).format(destination=slots["destination"])
-        accumulated_slots["destination"] = slots["destination"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"destination": slots["destination"]},
-            "expected_action": "REQUEST_MISSING_SLOT(check_in_date)",
-        })
-        
-        # Turn 2: dates
-        utterance = random.choice(ACCOMMODATION_TEMPLATES["slot_dates"]).format(
-            check_in_date=slots["check_in_date"],
-            check_out_date=slots["check_out_date"]
-        )
-        accumulated_slots["check_in_date"] = slots["check_in_date"]
-        accumulated_slots["check_out_date"] = slots["check_out_date"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"check_in_date": slots["check_in_date"], "check_out_date": slots["check_out_date"]},
-            "expected_action": "REQUEST_MISSING_SLOT(num_guests)",
-        })
-        
-        # Turn 3: guests
-        utterance = random.choice(ACCOMMODATION_TEMPLATES["slot_guests"]).format(num_guests=slots["num_guests"])
-        accumulated_slots["num_guests"] = slots["num_guests"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"num_guests": slots["num_guests"]},
-            "expected_action": "REQUEST_MISSING_SLOT(budget_level)",
-        })
-        
-        # Turn 4: budget
-        utterance = random.choice(ACCOMMODATION_TEMPLATES["slot_budget"]).format(budget_level=slots["budget_level"])
-        accumulated_slots["budget_level"] = slots["budget_level"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"budget_level": slots["budget_level"]},
-            "expected_action": "ASK_CONFIRMATION",
-        })
-        
-        # Turn 5: confirm
-        turns.append({
-            "user_utterance": random.choice(CONFIRMATION_TEMPLATES["yes"]),
-            "provided_slots": {"confirmation": "yes"},
-            "expected_action": "COMPLETE_ACCOMMODATION_BOOKING",
-        })
-        
-    elif intent == "BOOK_ACTIVITY":
-        # Turn 1: destination
-        utterance = random.choice(ACTIVITY_TEMPLATES["partial_dest_only"]).format(destination=slots["destination"])
-        accumulated_slots["destination"] = slots["destination"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"destination": slots["destination"]},
-            "expected_action": "REQUEST_MISSING_SLOT(activity_category)",
-        })
-        
-        # Turn 2: category
-        utterance = random.choice(ACTIVITY_TEMPLATES["slot_category"]).format(activity_category=slots["activity_category"])
-        accumulated_slots["activity_category"] = slots["activity_category"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"activity_category": slots["activity_category"]},
-            "expected_action": "REQUEST_MISSING_SLOT(budget_level)",
-        })
-        
-        # Turn 3: budget
-        utterance = random.choice(ACTIVITY_TEMPLATES["slot_budget"]).format(budget_level=slots["budget_level"])
-        accumulated_slots["budget_level"] = slots["budget_level"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"budget_level": slots["budget_level"]},
-            "expected_action": "ASK_CONFIRMATION",
-        })
-        
-        # Turn 4: confirm
-        turns.append({
-            "user_utterance": random.choice(CONFIRMATION_TEMPLATES["yes"]),
-            "provided_slots": {"confirmation": "yes"},
-            "expected_action": "COMPLETE_ACTIVITY_BOOKING",
-        })
-    
-    elif intent == "COMPARE_CITIES":
-        # Turn 1: partial
-        utterance = random.choice(COMPARE_CITIES_TEMPLATES["partial_cities_only"]).format(
-            city1=slots["city1"], city2=slots["city2"]
-        )
-        accumulated_slots["city1"] = slots["city1"]
-        accumulated_slots["city2"] = slots["city2"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"city1": slots["city1"], "city2": slots["city2"]},
-            "expected_action": "REQUEST_MISSING_SLOT(activity_category)",
-        })
-        
-        # Turn 2: category
-        utterance = random.choice(COMPARE_CITIES_TEMPLATES["slot_category"]).format(
-            activity_category=slots["activity_category"]
-        )
-        accumulated_slots["activity_category"] = slots["activity_category"]
-        turns.append({
-            "user_utterance": utterance,
-            "provided_slots": {"activity_category": slots["activity_category"]},
-            "expected_action": "COMPARE_CITIES_RESULT",
-        })
-    
-    final_slots = {k: v for k, v in slots.items() if v is not None and k != "return_date"}
-    
-    return GeneratedDialogue(
-        name=f"template_{intent.lower()}_{idx}_incremental",
-        intent=intent,
-        generation_method="template",
-        turns=turns,
-        expected_final_slots=final_slots,
-        expected_task_success=True,
-    )
-
-
-def generate_template_dialogues(num_per_intent: int = 5) -> List[GeneratedDialogue]:
-    """Generate template-based dialogues for all intents."""
     dialogues = []
-    
-    for intent in ["BOOK_FLIGHT", "BOOK_ACCOMMODATION", "BOOK_ACTIVITY", "COMPARE_CITIES"]:
-        for i in range(num_per_intent):
-            # Half full, half incremental
-            if i % 2 == 0:
-                d = generate_template_dialogue_full(intent, i)
-            else:
-                d = generate_template_dialogue_incremental(intent, i)
-            if d:
-                dialogues.append(d)
-    
-    # Add some END_DIALOGUE and OOD cases
-    dialogues.append(GeneratedDialogue(
-        name="template_end_dialogue_0",
-        intent="END_DIALOGUE",
-        generation_method="template",
-        turns=[{"user_utterance": random.choice(END_DIALOGUE_TEMPLATES), "provided_slots": {}, "expected_action": "GOODBYE"}],
-        expected_final_slots={},
-        expected_task_success=True,
-    ))
-    
-    dialogues.append(GeneratedDialogue(
-        name="template_ood_0",
-        intent="OOD",
-        generation_method="template",
-        turns=[{"user_utterance": "What's the weather like today?", "provided_slots": {}, "expected_action": "ASK_CLARIFICATION"}],
-        expected_final_slots={},
-        expected_task_success=True,
-    ))
-    
-    return dialogues
 
-
-def generate_multi_intent_dialogues(num_dialogues: int = 4) -> List[GeneratedDialogue]:
-    """Generate dialogues with multiple intents for testing the intent splitter."""
-    dialogues = []
-    
-    for idx, template_info in enumerate(MULTI_INTENT_TEMPLATES[:num_dialogues]):
-        # Generate slot values
-        destination = random.choice(CITIES)
-        activity_category = random.choice(ACTIVITY_TYPES)
-        
-        # Format the multi-intent utterance
-        utterance = template_info["template"].format(
-            destination=destination,
-            activity_category=activity_category,
-        )
-        
-        intents = template_info["intents"]
-        
-        # Create turns - just the initial multi-intent utterance
-        # The splitter should handle breaking it apart
-        turns = [
+    # --------------------------------------------------
+    # 1. Flight – Full booking
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="flight_full_static",
+        intent="BOOK_FLIGHT",
+        generation_method="static",
+        turns=[
             {
-                "user_utterance": utterance,
-                "provided_slots": {"destination": destination},
-                "expected_action": "REQUEST_MISSING_SLOT",  # Will request more info for first intent
-                "is_multi_intent_input": True,
+                "user_utterance": "Book a flight from Rome to Paris on 2026-06-10 for 2 passengers, medium budget",
+                "provided_slots": {
+                    "origin": "Rome",
+                    "destination": "Paris",
+                    "departure_date": "2026-06-10",
+                    "num_passengers": 2,
+                    "budget_level": "medium"
+                },
+                "expected_action": "ASK_CONFIRMATION"
+            },
+            {
+                "user_utterance": "Yes",
+                "provided_slots": {"confirmation": "yes"},
+                "expected_action": "COMPLETE_FLIGHT_BOOKING"
             }
-        ]
-        
-        dialogues.append(GeneratedDialogue(
-            name=f"multi_intent_{idx}_{len(intents)}_intents",
-            intent=intents[0],  # Primary intent
-            generation_method="multi_intent",
-            turns=turns,
-            expected_final_slots={"destination": destination},
-            expected_task_success=True,
-            is_multi_intent=True,
-            expected_intents=intents,
-        ))
-    
+        ],
+        expected_final_slots={
+            "origin": "Rome",
+            "destination": "Paris",
+            "departure_date": "2026-06-10",
+            "num_passengers": 2,
+            "budget_level": "medium"
+        },
+        expected_task_success=True,
+    ))
+
+    # --------------------------------------------------
+    # 2. Flight – Incremental
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="flight_incremental_static",
+        intent="BOOK_FLIGHT",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "I want to fly to London",
+                "provided_slots": {"destination": "London"},
+                "expected_action": "REQUEST_MISSING_SLOT(origin)"
+            },
+            {
+                "user_utterance": "From Berlin",
+                "provided_slots": {"origin": "Berlin"},
+                "expected_action": "REQUEST_MISSING_SLOT(departure_date)"
+            },
+            {
+                "user_utterance": "On 2026-07-01",
+                "provided_slots": {"departure_date": "2026-07-01"},
+                "expected_action": "REQUEST_MISSING_SLOT(num_passengers)"
+            },
+            {
+                "user_utterance": "2 people",
+                "provided_slots": {"num_passengers": 2},
+                "expected_action": "REQUEST_MISSING_SLOT(budget_level)"
+            },
+            {
+                "user_utterance": "Low budget",
+                "provided_slots": {"budget_level": "low"},
+                "expected_action": "ASK_CONFIRMATION"
+            },
+            {
+                "user_utterance": "Confirm",
+                "provided_slots": {"confirmation": "yes"},
+                "expected_action": "COMPLETE_FLIGHT_BOOKING"
+            }
+        ],
+        expected_final_slots={
+            "origin": "Berlin",
+            "destination": "London",
+            "departure_date": "2026-07-01",
+            "num_passengers": 2,
+            "budget_level": "low"
+        },
+        expected_task_success=True,
+    ))
+
+    # --------------------------------------------------
+    # 3. Accommodation – Full
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="hotel_full_static",
+        intent="BOOK_ACCOMMODATION",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "Book a hotel in Madrid from 2026-08-01 to 2026-08-05 for 2 guests, high budget",
+                "provided_slots": {
+                    "destination": "Madrid",
+                    "check_in_date": "2026-08-01",
+                    "check_out_date": "2026-08-05",
+                    "num_guests": 2,
+                    "budget_level": "high"
+                },
+                "expected_action": "ASK_CONFIRMATION"
+            },
+            {
+                "user_utterance": "Yes please",
+                "provided_slots": {"confirmation": "yes"},
+                "expected_action": "COMPLETE_ACCOMMODATION_BOOKING"
+            }
+        ],
+        expected_final_slots={
+            "destination": "Madrid",
+            "check_in_date": "2026-08-01",
+            "check_out_date": "2026-08-05",
+            "num_guests": 2,
+            "budget_level": "high"
+        },
+        expected_task_success=True,
+    ))
+
+    # --------------------------------------------------
+    # 4. Compare Cities
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="compare_static",
+        intent="COMPARE_CITIES",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "Compare Rome and Paris for culture",
+                "provided_slots": {
+                    "city1": "Rome",
+                    "city2": "Paris",
+                    "activity_category": "culture"
+                },
+                "expected_action": "COMPARE_CITIES_RESULT"
+            }
+        ],
+        expected_final_slots={
+            "city1": "Rome",
+            "city2": "Paris",
+            "activity_category": "culture"
+        },
+        expected_task_success=True,
+    ))
+
+    # --------------------------------------------------
+    # 5. End Dialogue
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="end_dialogue_static",
+        intent="END_DIALOGUE",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "Goodbye",
+                "provided_slots": {},
+                "expected_action": "GOODBYE"
+            }
+        ],
+        expected_final_slots={},
+        expected_task_success=True,
+    ))
+
+    # ==========================================================
+    # UNDER-INFORMATIVE USER DIALOGUES
+    # Users provide very little information per turn, forcing
+    # the system to request missing slots incrementally.
+    # ==========================================================
+
+    # --------------------------------------------------
+    # 6. Flight – Under-informative (minimal start)
+    # User says only "I want to fly" — no slots at all.
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="flight_under_minimal",
+        intent="BOOK_FLIGHT",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "I want to fly",
+                "provided_slots": {},
+                "expected_action": "REQUEST_MISSING_SLOT(destination)"
+            },
+            {
+                "user_utterance": "Tokyo",
+                "provided_slots": {"destination": "Tokyo"},
+                "expected_action": "REQUEST_MISSING_SLOT(origin)"
+            },
+            {
+                "user_utterance": "Milan",
+                "provided_slots": {"origin": "Milan"},
+                "expected_action": "REQUEST_MISSING_SLOT(departure_date)"
+            },
+            {
+                "user_utterance": "2026-09-15",
+                "provided_slots": {"departure_date": "2026-09-15"},
+                "expected_action": "REQUEST_MISSING_SLOT(num_passengers)"
+            },
+            {
+                "user_utterance": "Just me",
+                "provided_slots": {"num_passengers": 1},
+                "expected_action": "REQUEST_MISSING_SLOT(budget_level)"
+            },
+            {
+                "user_utterance": "High",
+                "provided_slots": {"budget_level": "high"},
+                "expected_action": "ASK_CONFIRMATION"
+            },
+            {
+                "user_utterance": "Yes",
+                "provided_slots": {"confirmation": "yes"},
+                "expected_action": "COMPLETE_FLIGHT_BOOKING"
+            }
+        ],
+        expected_final_slots={
+            "origin": "Milan",
+            "destination": "Tokyo",
+            "departure_date": "2026-09-15",
+            "num_passengers": 1,
+            "budget_level": "high"
+        },
+        expected_task_success=True,
+    ))
+
+    # --------------------------------------------------
+    # 7. Accommodation – Under-informative (vague start)
+    # User says "I need a place to stay" — zero details.
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="hotel_under_vague",
+        intent="BOOK_ACCOMMODATION",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "I need a place to stay",
+                "provided_slots": {},
+                "expected_action": "REQUEST_MISSING_SLOT(destination)"
+            },
+            {
+                "user_utterance": "Barcelona",
+                "provided_slots": {"destination": "Barcelona"},
+                "expected_action": "REQUEST_MISSING_SLOT(check_in_date)"
+            },
+            {
+                "user_utterance": "2026-10-01",
+                "provided_slots": {"check_in_date": "2026-10-01"},
+                "expected_action": "REQUEST_MISSING_SLOT(check_out_date)"
+            },
+            {
+                "user_utterance": "2026-10-05",
+                "provided_slots": {"check_out_date": "2026-10-05"},
+                "expected_action": "REQUEST_MISSING_SLOT(num_guests)"
+            },
+            {
+                "user_utterance": "3",
+                "provided_slots": {"num_guests": 3},
+                "expected_action": "REQUEST_MISSING_SLOT(budget_level)"
+            },
+            {
+                "user_utterance": "Medium",
+                "provided_slots": {"budget_level": "medium"},
+                "expected_action": "ASK_CONFIRMATION"
+            },
+            {
+                "user_utterance": "Yes, confirm",
+                "provided_slots": {"confirmation": "yes"},
+                "expected_action": "COMPLETE_ACCOMMODATION_BOOKING"
+            }
+        ],
+        expected_final_slots={
+            "destination": "Barcelona",
+            "check_in_date": "2026-10-01",
+            "check_out_date": "2026-10-05",
+            "num_guests": 3,
+            "budget_level": "medium"
+        },
+        expected_task_success=True,
+    ))
+
+    # --------------------------------------------------
+    # 8. Activity – Under-informative (only destination)
+    # User mentions only the city, nothing else.
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="activity_under_sparse",
+        intent="BOOK_ACTIVITY",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "I want to do something in Rome",
+                "provided_slots": {"destination": "Rome"},
+                "expected_action": "REQUEST_MISSING_SLOT(activity_category)"
+            },
+            {
+                "user_utterance": "Cultural",
+                "provided_slots": {"activity_category": "cultural"},
+                "expected_action": "REQUEST_MISSING_SLOT(budget_level)"
+            },
+            {
+                "user_utterance": "Low",
+                "provided_slots": {"budget_level": "low"},
+                "expected_action": "REQUEST_MISSING_SLOT(preferred_time)"
+            },
+            {
+                "user_utterance": "Morning",
+                "provided_slots": {"preferred_time": "morning"},
+                "expected_action": "ASK_CONFIRMATION"
+            },
+            {
+                "user_utterance": "Yes",
+                "provided_slots": {"confirmation": "yes"},
+                "expected_action": "COMPLETE_ACTIVITY_BOOKING"
+            }
+        ],
+        expected_final_slots={
+            "destination": "Rome",
+            "activity_category": "cultural",
+            "budget_level": "low",
+            "preferred_time": "morning"
+        },
+        expected_task_success=True,
+    ))
+
+    # --------------------------------------------------
+    # 9. Compare – Under-informative (no details)
+    # User says "Compare cities" without specifying which.
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="compare_under_incomplete",
+        intent="COMPARE_CITIES",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "I'd like to compare two cities",
+                "provided_slots": {},
+                "expected_action": "REQUEST_MISSING_SLOT(city1)"
+            },
+            {
+                "user_utterance": "London",
+                "provided_slots": {"city1": "London"},
+                "expected_action": "REQUEST_MISSING_SLOT(city2)"
+            },
+            {
+                "user_utterance": "Amsterdam",
+                "provided_slots": {"city2": "Amsterdam"},
+                "expected_action": "REQUEST_MISSING_SLOT(activity_category)"
+            },
+            {
+                "user_utterance": "Nightlife",
+                "provided_slots": {"activity_category": "nightlife"},
+                "expected_action": "COMPARE_CITIES_RESULT"
+            }
+        ],
+        expected_final_slots={
+            "city1": "London",
+            "city2": "Amsterdam",
+            "activity_category": "nightlife"
+        },
+        expected_task_success=True,
+    ))
+
+    # --------------------------------------------------
+    # 10. Flight – Under-informative (terse one-word answers)
+    # User gives bare minimum single-word responses.
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="flight_under_terse",
+        intent="BOOK_FLIGHT",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "Flight",
+                "provided_slots": {},
+                "expected_action": "REQUEST_MISSING_SLOT(destination)"
+            },
+            {
+                "user_utterance": "Lisbon",
+                "provided_slots": {"destination": "Lisbon"},
+                "expected_action": "REQUEST_MISSING_SLOT(origin)"
+            },
+            {
+                "user_utterance": "Vienna",
+                "provided_slots": {"origin": "Vienna"},
+                "expected_action": "REQUEST_MISSING_SLOT(departure_date)"
+            },
+            {
+                "user_utterance": "2026-12-20",
+                "provided_slots": {"departure_date": "2026-12-20"},
+                "expected_action": "REQUEST_MISSING_SLOT(num_passengers)"
+            },
+            {
+                "user_utterance": "4",
+                "provided_slots": {"num_passengers": 4},
+                "expected_action": "REQUEST_MISSING_SLOT(budget_level)"
+            },
+            {
+                "user_utterance": "Low",
+                "provided_slots": {"budget_level": "low"},
+                "expected_action": "ASK_CONFIRMATION"
+            },
+            {
+                "user_utterance": "Yes",
+                "provided_slots": {"confirmation": "yes"},
+                "expected_action": "COMPLETE_FLIGHT_BOOKING"
+            }
+        ],
+        expected_final_slots={
+            "origin": "Vienna",
+            "destination": "Lisbon",
+            "departure_date": "2026-12-20",
+            "num_passengers": 4,
+            "budget_level": "low"
+        },
+        expected_task_success=True,
+    ))
+
+    # --------------------------------------------------
+    # 11. Accommodation – Under-informative (one slot at a time)
+    # User provides exactly one slot per turn.
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="hotel_under_one_by_one",
+        intent="BOOK_ACCOMMODATION",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "Hotel",
+                "provided_slots": {},
+                "expected_action": "REQUEST_MISSING_SLOT(destination)"
+            },
+            {
+                "user_utterance": "Prague",
+                "provided_slots": {"destination": "Prague"},
+                "expected_action": "REQUEST_MISSING_SLOT(check_in_date)"
+            },
+            {
+                "user_utterance": "2026-11-10",
+                "provided_slots": {"check_in_date": "2026-11-10"},
+                "expected_action": "REQUEST_MISSING_SLOT(check_out_date)"
+            },
+            {
+                "user_utterance": "2026-11-14",
+                "provided_slots": {"check_out_date": "2026-11-14"},
+                "expected_action": "REQUEST_MISSING_SLOT(num_guests)"
+            },
+            {
+                "user_utterance": "1",
+                "provided_slots": {"num_guests": 1},
+                "expected_action": "REQUEST_MISSING_SLOT(budget_level)"
+            },
+            {
+                "user_utterance": "High",
+                "provided_slots": {"budget_level": "high"},
+                "expected_action": "ASK_CONFIRMATION"
+            },
+            {
+                "user_utterance": "Confirm",
+                "provided_slots": {"confirmation": "yes"},
+                "expected_action": "COMPLETE_ACCOMMODATION_BOOKING"
+            }
+        ],
+        expected_final_slots={
+            "destination": "Prague",
+            "check_in_date": "2026-11-10",
+            "check_out_date": "2026-11-14",
+            "num_guests": 1,
+            "budget_level": "high"
+        },
+        expected_task_success=True,
+    ))
+
+    # ==========================================================
+    # OVER-INFORMATIVE USER DIALOGUES
+    # Users provide more information than needed: extra narrative,
+    # irrelevant details, optional slots, or info for other intents.
+    # ==========================================================
+
+    # --------------------------------------------------
+    # 12. Flight – Over-informative (verbose narrative)
+    # User provides all slots + return_date + irrelevant story.
+    # System should extract relevant slots and ignore the rest.
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="flight_over_verbose",
+        intent="BOOK_FLIGHT",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "I really need to visit my grandmother in Athens, she's been quite ill lately and I haven't seen her since Christmas. I'm flying from Munich on 2026-07-20, it'll be just me traveling alone, and I'd like to keep it cheap so low budget please. Oh and I'm coming back on 2026-07-27.",
+                "provided_slots": {
+                    "origin": "Munich",
+                    "destination": "Athens",
+                    "departure_date": "2026-07-20",
+                    "num_passengers": 1,
+                    "budget_level": "low"
+                },
+                "expected_action": "ASK_CONFIRMATION"
+            },
+            {
+                "user_utterance": "Yes that looks right, thanks!",
+                "provided_slots": {"confirmation": "yes"},
+                "expected_action": "COMPLETE_FLIGHT_BOOKING"
+            }
+        ],
+        expected_final_slots={
+            "origin": "Munich",
+            "destination": "Athens",
+            "departure_date": "2026-07-20",
+            "num_passengers": 1,
+            "budget_level": "low"
+        },
+        expected_task_success=True,
+    ))
+
+    # --------------------------------------------------
+    # 13. Accommodation – Over-informative (extra slot domains)
+    # User provides hotel info AND mentions flight details.
+    # System should focus on accommodation slots only.
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="hotel_over_extra_domains",
+        intent="BOOK_ACCOMMODATION",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "I'm arriving in Dublin by flight from Rome on 2026-09-01 and I need a hotel. Check in September 1st, check out September 6th 2026, 2 guests, medium budget. I also want to rent a car but let's do the hotel first.",
+                "provided_slots": {
+                    "destination": "Dublin",
+                    "check_in_date": "2026-09-01",
+                    "check_out_date": "2026-09-06",
+                    "num_guests": 2,
+                    "budget_level": "medium"
+                },
+                "expected_action": "ASK_CONFIRMATION"
+            },
+            {
+                "user_utterance": "Perfect, confirm the hotel",
+                "provided_slots": {"confirmation": "yes"},
+                "expected_action": "COMPLETE_ACCOMMODATION_BOOKING"
+            }
+        ],
+        expected_final_slots={
+            "destination": "Dublin",
+            "check_in_date": "2026-09-01",
+            "check_out_date": "2026-09-06",
+            "num_guests": 2,
+            "budget_level": "medium"
+        },
+        expected_task_success=True,
+    ))
+
+    # --------------------------------------------------
+    # 14. Activity – Over-informative (extra preferences)
+    # User provides all activity slots + irrelevant details like
+    # weather preference, clothing, dietary restrictions.
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="activity_over_detailed",
+        intent="BOOK_ACTIVITY",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "I'd love a food tour in Barcelona, preferably in the evening around 7pm. Medium budget. I'm vegetarian and I hope it doesn't rain. Should I wear formal clothes?",
+                "provided_slots": {
+                    "destination": "Barcelona",
+                    "activity_category": "food",
+                    "budget_level": "medium",
+                    "preferred_time": "evening"
+                },
+                "expected_action": "ASK_CONFIRMATION"
+            },
+            {
+                "user_utterance": "Sounds great, go ahead",
+                "provided_slots": {"confirmation": "yes"},
+                "expected_action": "COMPLETE_ACTIVITY_BOOKING"
+            }
+        ],
+        expected_final_slots={
+            "destination": "Barcelona",
+            "activity_category": "food",
+            "budget_level": "medium",
+            "preferred_time": "evening"
+        },
+        expected_task_success=True,
+    ))
+
+    # --------------------------------------------------
+    # 15. Compare – Over-informative (extra narrative + opinions)
+    # User provides comparison request with lots of opinions
+    # and tangential context.
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="compare_over_narrative",
+        intent="COMPARE_CITIES",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "My wife and I are debating where to go for our anniversary. I think Berlin is amazing for nightlife but she prefers Prague. Can you compare Berlin and Prague for nightlife? We've been to both before but years ago.",
+                "provided_slots": {
+                    "city1": "Berlin",
+                    "city2": "Prague",
+                    "activity_category": "nightlife"
+                },
+                "expected_action": "COMPARE_CITIES_RESULT"
+            }
+        ],
+        expected_final_slots={
+            "city1": "Berlin",
+            "city2": "Prague",
+            "activity_category": "nightlife"
+        },
+        expected_task_success=True,
+    ))
+
+    # --------------------------------------------------
+    # 16. Flight – Over-informative (all slots + return date)
+    # User provides every possible slot including the optional
+    # return_date in a single dense utterance.
+    # --------------------------------------------------
+    dialogues.append(GeneratedDialogue(
+        name="flight_over_complete",
+        intent="BOOK_FLIGHT",
+        generation_method="static",
+        turns=[
+            {
+                "user_utterance": "Book a round trip flight from Stockholm to Istanbul departing 2026-08-10 returning 2026-08-20 for 3 passengers, high budget. I prefer morning flights and aisle seats.",
+                "provided_slots": {
+                    "origin": "Stockholm",
+                    "destination": "Istanbul",
+                    "departure_date": "2026-08-10",
+                    "num_passengers": 3,
+                    "budget_level": "high"
+                },
+                "expected_action": "ASK_CONFIRMATION"
+            },
+            {
+                "user_utterance": "Confirmed",
+                "provided_slots": {"confirmation": "yes"},
+                "expected_action": "COMPLETE_FLIGHT_BOOKING"
+            }
+        ],
+        expected_final_slots={
+            "origin": "Stockholm",
+            "destination": "Istanbul",
+            "departure_date": "2026-08-10",
+            "num_passengers": 3,
+            "budget_level": "high"
+        },
+        expected_task_success=True,
+    ))
+
     return dialogues
-
-
-# --- LLM-based dialogue generation ---
-
-LLM_GENERATION_PROMPT = """You are a data generator for a travel booking dialogue system.
-Generate a realistic user dialogue for the following scenario.
-
-Task: {intent_description}
-Required slots: {slots}
-Slot values to use: {slot_values}
-
-Generate a natural multi-turn dialogue where the user gradually provides information.
-Output format - return a JSON array of turns, each with:
-- "user_utterance": what the user says
-- "provided_slots": dict of slots provided in this turn
-
-Example for BOOK_FLIGHT:
-
-# --- Evaluation functions ---
-  {{"user_utterance": "2 people", "provided_slots": {{"num_passengers": 2}}}},
-  {{"user_utterance": "Medium budget", "provided_slots": {{"budget_level": "medium"}}}},
-  {{"user_utterance": "Yes, confirm", "provided_slots": {{"confirmation": "yes"}}}}
-]
-
-Now generate for:
-Intent: {intent}
-Slots: {slot_values}
-
-Return ONLY the JSON array, no other text."""
-
-
-def generate_llm_dialogue(pipe, intent: str, idx: int) -> Optional[GeneratedDialogue]:
-    """Generate a dialogue using the LLM with few-shot prompting."""
-    slots = generate_slot_values(intent)
-    
-    intent_descriptions = {
-        "BOOK_FLIGHT": "User wants to book a flight",
-        "BOOK_ACCOMMODATION": "User wants to book a hotel/accommodation",
-        "BOOK_ACTIVITY": "User wants to book an activity or tour",
-        "COMPARE_CITIES": "User wants to compare two cities for travel",
-    }
-    
-    if intent not in intent_descriptions:
-        return None
-    
-    slot_names = INTENT_SLOTS.get(intent, [])
-    
-    prompt = LLM_GENERATION_PROMPT.format(
-        intent_description=intent_descriptions[intent],
-        slots=slot_names,
-        slot_values=json.dumps(slots),
-        intent=intent,
-    )
-    
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant that generates dialogue data in JSON format."},
-        {"role": "user", "content": prompt},
-    ]
-    
-    try:
-        outputs = pipe(
-            messages,
-            max_new_tokens=500,
-            do_sample=True,
-            temperature=0.7,
-            pad_token_id=pipe.tokenizer.pad_token_id,
-        )
-        
-        response = outputs[0]["generated_text"][-1]["content"]
-        
-        # Parse JSON from response
-        # Try to find JSON array in the response
-        import re
-        json_match = re.search(r'\[.*\]', response, re.DOTALL)
-        if json_match:
-            turns_data = json.loads(json_match.group())
-        else:
-            print(f"Warning: Could not parse LLM response for {intent}")
-            return None
-        
-        # Convert to our format and add expected actions
-        turns = []
-        accumulated = {}
-        required_slots = set(INTENT_SLOTS.get(intent, []))
-        
-        for turn_data in turns_data:
-            user_utterance = turn_data.get("user_utterance", "")
-            provided_slots = turn_data.get("provided_slots", {})
-            
-            # Update accumulated slots
-            accumulated.update({k: v for k, v in provided_slots.items() if v is not None})
-            
-            # Determine expected action based on accumulated slots
-            if provided_slots.get("confirmation") == "yes":
-                expected_action = {
-                    "BOOK_FLIGHT": "COMPLETE_FLIGHT_BOOKING",
-                    "BOOK_ACCOMMODATION": "COMPLETE_ACCOMMODATION_BOOKING",
-                    "BOOK_ACTIVITY": "COMPLETE_ACTIVITY_BOOKING",
-                }.get(intent, "ASK_CONFIRMATION")
-            elif provided_slots.get("confirmation") == "no":
-                expected_action = "REQUEST_SLOT_CHANGE"
-            else:
-                # Check what's still missing
-                filled = set(k for k, v in accumulated.items() if v is not None and k != "confirmation")
-                missing = required_slots - filled
-                
-                if not missing:
-                    if intent == "COMPARE_CITIES":
-                        expected_action = "COMPARE_CITIES_RESULT"
-                    else:
-                        expected_action = "ASK_CONFIRMATION"
-                else:
-                    first_missing = sorted(missing)[0]  # Deterministic order
-                    expected_action = f"REQUEST_MISSING_SLOT({first_missing})"
-            
-            turns.append({
-                "user_utterance": user_utterance,
-                "provided_slots": provided_slots,
-                "expected_action": expected_action,
-            })
-        
-        final_slots = {k: v for k, v in slots.items() if v is not None and k != "return_date"}
-        
-        return GeneratedDialogue(
-            name=f"llm_{intent.lower()}_{idx}",
-            intent=intent,
-            generation_method="llm",
-            turns=turns,
-            expected_final_slots=final_slots,
-            expected_task_success=True,
-        )
-        
-    except Exception as e:
-        print(f"Error generating LLM dialogue for {intent}: {e}")
-        return None
-
-
-def generate_llm_dialogues(pipe, num_per_intent: int = 3) -> List[GeneratedDialogue]:
-    """Generate LLM-based dialogues for all booking intents."""
-    dialogues = []
-    
-    for intent in ["BOOK_FLIGHT", "BOOK_ACCOMMODATION", "BOOK_ACTIVITY", "COMPARE_CITIES"]:
-        for i in range(num_per_intent):
-            d = generate_llm_dialogue(pipe, intent, i)
-            if d:
-                dialogues.append(d)
-    
-    return dialogues
-
 
 # =============================================================================
 # PIPELINE EVALUATION
@@ -776,6 +750,7 @@ class DialogueEvalResult:
     dialogue_name: str
     intent: str
     generation_method: str
+    dm_mode: str  # "llm" or "rule"
     task_success: bool
     num_turns: int
     dm_correct_actions: int
@@ -792,115 +767,171 @@ class DialogueEvalResult:
     detected_intents_count: int = 1
 
 
-class PipelineEvaluator:
-    """Evaluates the complete dialogue pipeline."""
-    
-    def __init__(self, pipe, use_llm_dm: bool = True, use_splitter: bool = False):
+class DualPipelineEvaluator:
+    """
+    Evaluates the pipeline with BOTH LLM-based and rule-based DM in a single run.
+    NLU is called once per turn; the same output is fed to both DMs independently.
+    Each DM maintains its own DialogueState so their flows evolve separately.
+    """
+
+    def __init__(self, pipe, use_splitter: bool = False):
         self.pipe = pipe
-        self.use_llm_dm = use_llm_dm
         self.use_splitter = use_splitter
-        self.results: List[DialogueEvalResult] = []
-        
-        # Action-level metrics
-        self.action_tp: Dict[str, int] = defaultdict(int)
-        self.action_fp: Dict[str, int] = defaultdict(int)
-        self.action_fn: Dict[str, int] = defaultdict(int)
-        
-        # Splitter metrics tracking
+
+        # Separate result lists per DM mode
+        self.results_llm: List[DialogueEvalResult] = []
+        self.results_rule: List[DialogueEvalResult] = []
+
+        # Separate action-level counters per DM mode
+        self.action_tp_llm: Dict[str, int] = defaultdict(int)
+        self.action_fp_llm: Dict[str, int] = defaultdict(int)
+        self.action_fn_llm: Dict[str, int] = defaultdict(int)
+
+        self.action_tp_rule: Dict[str, int] = defaultdict(int)
+        self.action_fp_rule: Dict[str, int] = defaultdict(int)
+        self.action_fn_rule: Dict[str, int] = defaultdict(int)
+
+        # Splitter metrics (shared – the splitter runs once)
         self.splitter_stats = {
             "total_multi_intent": 0,
             "detected_correctly": 0,
             "split_correctly": 0,
         }
-    
-    def run_dialogue(self, dialogue: GeneratedDialogue) -> DialogueEvalResult:
-        """Run a single dialogue through the pipeline and evaluate."""
-        state = DialogueState()
+
+    # -----------------------------------------------------------------
+    # Single-dialogue evaluation (dual)
+    # -----------------------------------------------------------------
+    def run_dialogue_dual(
+        self, dialogue: GeneratedDialogue
+    ) -> Tuple[DialogueEvalResult, DialogueEvalResult]:
+        """
+        Run one dialogue through the pipeline.
+        NLU is called ONCE per turn; the same nlu_output is
+        deep-copied and given to both DMs independently.
+        Returns (result_llm, result_rule).
+        """
+        # Independent states for the two DMs
+        state_rule = DialogueState()
+        state_llm = DialogueState()
+
         intent_queue = IntentQueue() if self.use_splitter else None
-        history = []
-        errors = []
-        dm_correct = 0
+
+        # Shared history used as NLU context (uses rule-based NLG
+        # responses so the context is deterministic and reproducible)
+        shared_history: List[Dict[str, str]] = []
+
+        # Per-DM tracking
+        errors_llm: List[str] = []
+        errors_rule: List[str] = []
+        dm_correct_llm = 0
+        dm_correct_rule = 0
         dm_total = 0
+
+        # Slot metrics are shared (NLU output is the same)
         slot_tp, slot_fp, slot_fn = 0, 0, 0
-        task_success = True
-        
-        # Splitter evaluation variables
+
+        task_success_llm = True
+        task_success_rule = True
+
+        # Splitter variables (shared)
         is_multi_intent = dialogue.is_multi_intent
         splitter_detected_correctly = True
         splitter_split_correctly = True
-        expected_intents_count = len(dialogue.expected_intents) if dialogue.expected_intents else 1
+        expected_intents_count = (
+            len(dialogue.expected_intents) if dialogue.expected_intents else 1
+        )
         detected_intents_count = 1
-        
+
         for turn_idx, turn in enumerate(dialogue.turns):
             user_utterance = turn["user_utterance"]
             expected_action = turn.get("expected_action", "")
             provided_slots = turn.get("provided_slots", {})
             is_multi_intent_input = turn.get("is_multi_intent_input", False)
-            
-            # 0. Intent Splitter (if enabled)
+
+            # 0. Intent Splitter (shared, called once)
             current_input = user_utterance
             if self.use_splitter and is_multi_intent_input:
-                # Track multi-intent detection
                 self.splitter_stats["total_multi_intent"] += 1
-                
-                # Check if splitter detects it as multi-intent
-                detected_multi = has_multiple_intents(self.pipe, user_utterance)
+                current_input, pending = split_intents(self.pipe, user_utterance)
+                detected_multi = len(pending) > 0
+                detected_intents_count = 1 + len(pending)
+
                 if detected_multi == is_multi_intent:
                     splitter_detected_correctly = True
                     self.splitter_stats["detected_correctly"] += 1
                 else:
                     splitter_detected_correctly = False
-                    errors.append(f"Turn {turn_idx}: Splitter detection failed - expected multi-intent={is_multi_intent}, got {detected_multi}")
-                
-                # Attempt to split
-                if detected_multi:
-                    current_input, pending = split_intents(self.pipe, user_utterance)
-                    detected_intents_count = 1 + len(pending)
-                    
-                    # Add pending to queue
-                    if intent_queue and pending:
-                        intent_queue.add(pending)
-                    
-                    # Check if split count is correct (allow ±1 tolerance)
-                    if abs(detected_intents_count - expected_intents_count) <= 1:
-                        splitter_split_correctly = True
-                        self.splitter_stats["split_correctly"] += 1
-                    else:
-                        splitter_split_correctly = False
-                        errors.append(f"Turn {turn_idx}: Splitter split count wrong - expected {expected_intents_count}, got {detected_intents_count}")
-            
-            # 1. DST - Generate context
-            system_prompt = state_context(state)
-            
-            # 2. NLU - Parse user input (use current_input if splitter is active)
+                    err = (f"Turn {turn_idx}: Splitter detection failed - "
+                           f"expected multi-intent={is_multi_intent}, got {detected_multi}")
+                    errors_llm.append(err)
+                    errors_rule.append(err)
+
+                if intent_queue and pending:
+                    intent_queue.add(pending)
+
+                if abs(detected_intents_count - expected_intents_count) <= 1:
+                    splitter_split_correctly = True
+                    self.splitter_stats["split_correctly"] += 1
+                else:
+                    splitter_split_correctly = False
+                    err = (f"Turn {turn_idx}: Splitter split count wrong - "
+                           f"expected {expected_intents_count}, got {detected_intents_count}")
+                    errors_llm.append(err)
+                    errors_rule.append(err)
+
+            # 1. DST context — use rule-based state (deterministic)
+            system_prompt = state_context(state_rule)
+
+            # 2. NLU — called ONCE
             nlu_output = nlu_parse(
                 self.pipe,
                 current_input,
                 system_prompt,
-                dialogue_history=history
+                dialogue_history=shared_history,
             )
-            
-            # 3. DM - Decide action
-            if self.use_llm_dm:
-                action = dm_decide(state, nlu_output, current_input, llm_pipe=self.pipe)
-            else:
-                action = dm_decide_rule_based(state, nlu_output)
-            
-            # Evaluate DM action
+
+            # Deep-copy so the two DMs don't cross-contaminate
+            nlu_for_llm = copy.deepcopy(nlu_output)
+            nlu_for_rule = copy.deepcopy(nlu_output)
+
+            # 3a. DM — Rule-based
+            action_rule = dm_decide_rule_based(state_rule, nlu_for_rule)
+
+            # 3b. DM — LLM-based
+            action_llm = dm_decide(
+                state_llm, nlu_for_llm, current_input, llm_pipe=self.pipe
+            )
+
+            # --- Evaluate DM actions ---
             dm_total += 1
             expected_base, _ = parse_action(expected_action)
-            actual_base, _ = parse_action(action)
-            
-            if expected_base == actual_base:
-                dm_correct += 1
-                self.action_tp[expected_base] += 1
+
+            # Rule-based
+            actual_base_rule, _ = parse_action(action_rule)
+            if expected_base == actual_base_rule:
+                dm_correct_rule += 1
+                self.action_tp_rule[expected_base] += 1
             else:
-                self.action_fn[expected_base] += 1
-                self.action_fp[actual_base] += 1
-                errors.append(f"Turn {turn_idx}: expected {expected_action}, got {action}")
-            
-            # Evaluate slot extraction
-            nlu_slots = nlu_output.get("slots", {})
+                self.action_fn_rule[expected_base] += 1
+                self.action_fp_rule[actual_base_rule] += 1
+                errors_rule.append(
+                    f"Turn {turn_idx}: expected {expected_action}, got {action_rule}"
+                )
+
+            # LLM-based
+            actual_base_llm, _ = parse_action(action_llm)
+            if expected_base == actual_base_llm:
+                dm_correct_llm += 1
+                self.action_tp_llm[expected_base] += 1
+            else:
+                self.action_fn_llm[expected_base] += 1
+                self.action_fp_llm[actual_base_llm] += 1
+                errors_llm.append(
+                    f"Turn {turn_idx}: expected {expected_action}, got {action_llm}"
+                )
+
+            # --- Evaluate slot extraction (shared NLU output) ---
+            nlu_slots = nlu_output.get("slots", {}) or {}
             for slot, expected_val in provided_slots.items():
                 if slot == "confirmation":
                     continue
@@ -909,140 +940,200 @@ class PipelineEvaluator:
                     slot_tp += 1
                 elif got_val is not None:
                     slot_fp += 1
-                    slot_fn += 1  # Wrong value
+                    slot_fn += 1
                 else:
-                    slot_fn += 1  # Missing
-            
-            # Check for extra slots in NLU output
-            for slot, val in nlu_slots.items():
-                if slot not in provided_slots and val is not None and slot != "confirmation":
-                    # Could be carryover or hallucination - count as FP for strict eval
-                    pass
-            
-            # Update history
-            history.append({"role": "user", "content": user_utterance})
-            
-            # Generate response (optional - for completeness)
+                    slot_fn += 1
+
+            # --- Shared history (rule-based NLG for deterministic context) ---
+            shared_history.append({"role": "user", "content": user_utterance})
             try:
-                response = nlg_generate(self.pipe, action, state)
-                history.append({"role": "assistant", "content": response})
+                response = nlg_generate(self.pipe, action_rule, state_rule)
+                shared_history.append({"role": "assistant", "content": response})
             except Exception as e:
-                history.append({"role": "assistant", "content": f"[NLG Error: {e}]"})
-            
-            # Check if task failed
-            if actual_base == "ASK_CLARIFICATION" and expected_base != "ASK_CLARIFICATION":
-                # Pipeline got confused
-                pass
-        
-        # Check final action for task success
-        if dialogue.turns:
+                shared_history.append(
+                    {"role": "assistant", "content": f"[NLG Error: {e}]"}
+                )
+
+        # --- Task success (check final action per DM) ---
+        def _check_task_success(
+            state: DialogueState, dialogue: GeneratedDialogue
+        ) -> bool:
+            if not dialogue.turns:
+                return True
             final_expected = dialogue.turns[-1].get("expected_action", "")
             final_expected_base, _ = parse_action(final_expected)
-            
-            # Task is successful if we reached the expected final action
-            completion_actions = ["COMPLETE_FLIGHT_BOOKING", "COMPLETE_ACCOMMODATION_BOOKING", 
-                                   "COMPLETE_ACTIVITY_BOOKING", "COMPARE_CITIES_RESULT", "GOODBYE"]
-            
+            completion_actions = [
+                "COMPLETE_FLIGHT_BOOKING",
+                "COMPLETE_ACCOMMODATION_BOOKING",
+                "COMPLETE_ACTIVITY_BOOKING",
+                "COMPARE_CITIES_RESULT",
+                "GOODBYE",
+            ]
             if final_expected_base in completion_actions:
-                # Check if state.last_action matches
                 actual_final_base, _ = parse_action(state.last_action or "")
-                task_success = (actual_final_base == final_expected_base)
-        
-        return DialogueEvalResult(
+                if actual_final_base != final_expected_base:
+                    return False
+                booking = state.get_current_booking()
+                if booking:
+                    for slot, expected_value in dialogue.expected_final_slots.items():
+                        actual_value = getattr(booking, slot, None)
+                        if actual_value is None:
+                            return False
+                        if str(actual_value).lower() != str(expected_value).lower():
+                            return False
+            return True
+
+        task_success_rule = _check_task_success(state_rule, dialogue)
+        task_success_llm = _check_task_success(state_llm, dialogue)
+
+        # Build result objects
+        common = dict(
             dialogue_name=dialogue.name,
             intent=dialogue.intent,
             generation_method=dialogue.generation_method,
-            task_success=task_success,
             num_turns=len(dialogue.turns),
-            dm_correct_actions=dm_correct,
             dm_total_actions=dm_total,
             slot_tp=slot_tp,
             slot_fp=slot_fp,
             slot_fn=slot_fn,
-            errors=errors,
             is_multi_intent=is_multi_intent,
             splitter_detected_correctly=splitter_detected_correctly,
             splitter_split_correctly=splitter_split_correctly,
             expected_intents_count=expected_intents_count,
             detected_intents_count=detected_intents_count,
         )
-    
-    def evaluate_all(self, dialogues: List[GeneratedDialogue]) -> PipelineMetrics:
-        """Evaluate all dialogues and compute aggregate metrics."""
-        self.results = []
-        self.action_tp = defaultdict(int)
-        self.action_fp = defaultdict(int)
-        self.action_fn = defaultdict(int)
-        
-        for dialogue in tqdm(dialogues, desc="Evaluating dialogues", unit="dialogue"):
-            result = self.run_dialogue(dialogue)
-            self.results.append(result)
-        
-        # Compute aggregate metrics
+
+        result_llm = DialogueEvalResult(
+            **common,
+            dm_mode="llm",
+            task_success=task_success_llm,
+            dm_correct_actions=dm_correct_llm,
+            errors=errors_llm,
+        )
+        result_rule = DialogueEvalResult(
+            **common,
+            dm_mode="rule",
+            task_success=task_success_rule,
+            dm_correct_actions=dm_correct_rule,
+            errors=errors_rule,
+        )
+        return result_llm, result_rule
+
+    # -----------------------------------------------------------------
+    # Evaluate all dialogues
+    # -----------------------------------------------------------------
+    def evaluate_all(
+        self, dialogues: List[GeneratedDialogue]
+    ) -> Tuple[PipelineMetrics, PipelineMetrics]:
+        """Evaluate all dialogues. Returns (metrics_llm, metrics_rule)."""
+        self.results_llm = []
+        self.results_rule = []
+        self.action_tp_llm = defaultdict(int)
+        self.action_fp_llm = defaultdict(int)
+        self.action_fn_llm = defaultdict(int)
+        self.action_tp_rule = defaultdict(int)
+        self.action_fp_rule = defaultdict(int)
+        self.action_fn_rule = defaultdict(int)
+
+        for dialogue in tqdm(dialogues, desc="Evaluating dialogues (dual DM)", unit="dlg"):
+            r_llm, r_rule = self.run_dialogue_dual(dialogue)
+            self.results_llm.append(r_llm)
+            self.results_rule.append(r_rule)
+
+        metrics_llm = self._compute_metrics(
+            self.results_llm, self.action_tp_llm, self.action_fp_llm, self.action_fn_llm
+        )
+        metrics_rule = self._compute_metrics(
+            self.results_rule, self.action_tp_rule, self.action_fp_rule, self.action_fn_rule
+        )
+        return metrics_llm, metrics_rule
+
+    # -----------------------------------------------------------------
+    # Metric computation (reused for both DMs)
+    # -----------------------------------------------------------------
+    @staticmethod
+    def _compute_metrics(
+        results: List[DialogueEvalResult],
+        action_tp: Dict[str, int],
+        action_fp: Dict[str, int],
+        action_fn: Dict[str, int],
+    ) -> PipelineMetrics:
         metrics = PipelineMetrics()
-        
-        # Task success rate
-        successful = sum(1 for r in self.results if r.task_success)
-        metrics.task_success_rate = successful / len(self.results) if self.results else 0
-        
-        # Slot metrics
-        total_tp = sum(r.slot_tp for r in self.results)
-        total_fp = sum(r.slot_fp for r in self.results)
-        total_fn = sum(r.slot_fn for r in self.results)
-        
+        if not results:
+            return metrics
+
+        # Task success
+        metrics.task_success_rate = sum(1 for r in results if r.task_success) / len(results)
+
+        # Slot metrics (shared NLU, identical for both)
+        total_tp = sum(r.slot_tp for r in results)
+        total_fp = sum(r.slot_fp for r in results)
+        total_fn = sum(r.slot_fn for r in results)
         metrics.slot_precision = total_tp / (total_tp + total_fp) if (total_tp + total_fp) > 0 else 0
         metrics.slot_recall = total_tp / (total_tp + total_fn) if (total_tp + total_fn) > 0 else 0
-        metrics.slot_f1 = 2 * metrics.slot_precision * metrics.slot_recall / (metrics.slot_precision + metrics.slot_recall) if (metrics.slot_precision + metrics.slot_recall) > 0 else 0
-        
+        metrics.slot_f1 = (
+            2 * metrics.slot_precision * metrics.slot_recall
+            / (metrics.slot_precision + metrics.slot_recall)
+            if (metrics.slot_precision + metrics.slot_recall) > 0 else 0
+        )
+
         # DM accuracy
-        total_dm_correct = sum(r.dm_correct_actions for r in self.results)
-        total_dm_actions = sum(r.dm_total_actions for r in self.results)
+        total_dm_correct = sum(r.dm_correct_actions for r in results)
+        total_dm_actions = sum(r.dm_total_actions for r in results)
         metrics.dm_accuracy = total_dm_correct / total_dm_actions if total_dm_actions > 0 else 0
-        
+
         # DM action F1 (macro)
         action_f1s = []
-        for action in set(self.action_tp.keys()) | set(self.action_fn.keys()):
-            tp = self.action_tp[action]
-            fp = self.action_fp[action]
-            fn = self.action_fn[action]
+        for action in set(action_tp.keys()) | set(action_fn.keys()):
+            tp = action_tp[action]
+            fp = action_fp[action]
+            fn = action_fn[action]
             precision = tp / (tp + fp) if (tp + fp) > 0 else 0
             recall = tp / (tp + fn) if (tp + fn) > 0 else 0
             f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-            if tp + fn > 0:  # Only count actions that appear in ground truth
+            if tp + fn > 0:
                 action_f1s.append(f1)
         metrics.dm_action_f1 = sum(action_f1s) / len(action_f1s) if action_f1s else 0
-        
+
         # Efficiency
-        metrics.avg_turns = sum(r.num_turns for r in self.results) / len(self.results) if self.results else 0
-        
+        metrics.avg_turns = sum(r.num_turns for r in results) / len(results)
+
         # Per-intent breakdown
         intent_results = defaultdict(list)
-        for r in self.results:
+        for r in results:
             intent_results[r.intent].append(r)
-        
-        for intent, results in intent_results.items():
-            success_count = sum(1 for r in results if r.task_success)
-            metrics.per_intent_success[intent] = success_count / len(results) if results else 0
-            
-            dm_correct = sum(r.dm_correct_actions for r in results)
-            dm_total = sum(r.dm_total_actions for r in results)
-            metrics.per_intent_dm_accuracy[intent] = dm_correct / dm_total if dm_total > 0 else 0
-        
-        # Intent Splitter metrics
-        multi_intent_results = [r for r in self.results if r.is_multi_intent]
-        if multi_intent_results:
-            metrics.splitter_detection_accuracy = sum(1 for r in multi_intent_results if r.splitter_detected_correctly) / len(multi_intent_results)
-            metrics.splitter_split_accuracy = sum(1 for r in multi_intent_results if r.splitter_split_correctly) / len(multi_intent_results)
-            metrics.multi_intent_success_rate = sum(1 for r in multi_intent_results if r.task_success) / len(multi_intent_results)
-        
+        for intent, ires in intent_results.items():
+            success_count = sum(1 for r in ires if r.task_success)
+            metrics.per_intent_success[intent] = success_count / len(ires) if ires else 0
+            dm_c = sum(r.dm_correct_actions for r in ires)
+            dm_t = sum(r.dm_total_actions for r in ires)
+            metrics.per_intent_dm_accuracy[intent] = dm_c / dm_t if dm_t > 0 else 0
+
+        # Splitter metrics
+        multi = [r for r in results if r.is_multi_intent]
+        if multi:
+            metrics.splitter_detection_accuracy = sum(1 for r in multi if r.splitter_detected_correctly) / len(multi)
+            metrics.splitter_split_accuracy = sum(1 for r in multi if r.splitter_split_correctly) / len(multi)
+            metrics.multi_intent_success_rate = sum(1 for r in multi if r.task_success) / len(multi)
+
         return metrics
-    
-    def print_report(self, metrics: PipelineMetrics):
-        """Print a detailed evaluation report."""
-        print("\n" + "=" * 90)
-        print("PIPELINE EVALUATION REPORT")
+
+    # -----------------------------------------------------------------
+    # Printing
+    # -----------------------------------------------------------------
+    def _print_single_report(
+        self,
+        label: str,
+        metrics: PipelineMetrics,
+        results: List[DialogueEvalResult],
+        action_tp: Dict[str, int],
+        action_fp: Dict[str, int],
+        action_fn: Dict[str, int],
+    ):
+        print(f"\n{'=' * 90}")
+        print(f"PIPELINE EVALUATION — {label}")
         print("=" * 90)
-        
+
         print(f"\n{'Overall Metrics':^40}")
         print("-" * 50)
         print(f"Task Success Rate:     {metrics.task_success_rate:.2%}")
@@ -1052,160 +1143,235 @@ class PipelineEvaluator:
         print(f"Slot Recall:           {metrics.slot_recall:.2%}")
         print(f"Slot F1:               {metrics.slot_f1:.4f}")
         print(f"Avg Turns/Dialogue:    {metrics.avg_turns:.1f}")
-        
-        # Intent Splitter metrics (if applicable)
-        multi_intent_results = [r for r in self.results if r.is_multi_intent]
-        if multi_intent_results and self.use_splitter:
+
+        # Splitter
+        multi = [r for r in results if r.is_multi_intent]
+        if multi and self.use_splitter:
             print(f"\n{'Intent Splitter Metrics':^40}")
             print("-" * 50)
             print(f"Detection Accuracy:    {metrics.splitter_detection_accuracy:.2%}")
             print(f"Split Accuracy:        {metrics.splitter_split_accuracy:.2%}")
             print(f"Multi-Intent Success:  {metrics.multi_intent_success_rate:.2%}")
-            print(f"Multi-Intent Dialogues: {len(multi_intent_results)}")
-        
+            print(f"Multi-Intent Dialogues: {len(multi)}")
+
         print(f"\n{'Per-Intent Task Success':^40}")
         print("-" * 50)
         for intent in sorted(metrics.per_intent_success.keys()):
             print(f"{intent:<25} {metrics.per_intent_success[intent]:.2%}")
-        
+
         print(f"\n{'Per-Intent DM Accuracy':^40}")
         print("-" * 50)
         for intent in sorted(metrics.per_intent_dm_accuracy.keys()):
             print(f"{intent:<25} {metrics.per_intent_dm_accuracy[intent]:.2%}")
-        
+
         print(f"\n{'Per-Action F1 Scores':^40}")
         print("-" * 50)
-        for action in sorted(self.action_tp.keys()):
-            tp = self.action_tp[action]
-            fp = self.action_fp[action]
-            fn = self.action_fn[action]
+        for action in sorted(action_tp.keys()):
+            tp = action_tp[action]
+            fp = action_fp[action]
+            fn = action_fn[action]
             precision = tp / (tp + fp) if (tp + fp) > 0 else 0
             recall = tp / (tp + fn) if (tp + fn) > 0 else 0
             f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
             support = tp + fn
             print(f"{action:<30} P={precision:.2f} R={recall:.2f} F1={f1:.4f} (n={support})")
-        
-        # Print failures
-        failed = [r for r in self.results if not r.task_success]
+
+        # Failures
+        failed = [r for r in results if not r.task_success]
         if failed:
             print(f"\n{'Failed Dialogues':^40}")
             print("-" * 50)
-            for r in failed[:10]:  # Show first 10
+            for r in failed[:10]:
                 print(f"\n{r.dialogue_name} ({r.intent})")
-                for err in r.errors[:3]:  # Show first 3 errors
+                for err in r.errors[:3]:
                     print(f"  - {err}")
-        
+
         # By generation method
         print(f"\n{'By Generation Method':^40}")
         print("-" * 50)
-        for method in ["template", "llm"]:
-            method_results = [r for r in self.results if r.generation_method == method]
-            if method_results:
-                success_rate = sum(1 for r in method_results if r.task_success) / len(method_results)
-                print(f"{method:<15} Success Rate: {success_rate:.2%} (n={len(method_results)})")
+        for method in sorted({r.generation_method for r in results}):
+            mr = [r for r in results if r.generation_method == method]
+            if mr:
+                sr = sum(1 for r in mr if r.task_success) / len(mr)
+                print(f"{method:<15} Success Rate: {sr:.2%} (n={len(mr)})")
+
+    def print_comparative_report(
+        self,
+        metrics_llm: PipelineMetrics,
+        metrics_rule: PipelineMetrics,
+    ):
+        """Print both individual reports + a side-by-side comparison."""
+        # Individual reports
+        self._print_single_report(
+            "RULE-BASED DM",
+            metrics_rule,
+            self.results_rule,
+            self.action_tp_rule,
+            self.action_fp_rule,
+            self.action_fn_rule,
+        )
+        self._print_single_report(
+            "LLM-BASED DM",
+            metrics_llm,
+            self.results_llm,
+            self.action_tp_llm,
+            self.action_fp_llm,
+            self.action_fn_llm,
+        )
+
+        # Comparative summary
+        print(f"\n{'=' * 90}")
+        print("COMPARATIVE SUMMARY  (same NLU input)")
+        print("=" * 90)
+        header = f"{'Metric':<30} {'Rule-Based':>12} {'LLM-Based':>12} {'Delta':>10}"
+        print(header)
+        print("-" * len(header))
+
+        rows = [
+            ("Task Success Rate", metrics_rule.task_success_rate, metrics_llm.task_success_rate),
+            ("DM Action Accuracy", metrics_rule.dm_accuracy, metrics_llm.dm_accuracy),
+            ("DM Action Macro F1", metrics_rule.dm_action_f1, metrics_llm.dm_action_f1),
+            ("Slot Precision", metrics_rule.slot_precision, metrics_llm.slot_precision),
+            ("Slot Recall", metrics_rule.slot_recall, metrics_llm.slot_recall),
+            ("Slot F1", metrics_rule.slot_f1, metrics_llm.slot_f1),
+            ("Avg Turns/Dialogue", metrics_rule.avg_turns, metrics_llm.avg_turns),
+        ]
+        for name, val_rule, val_llm in rows:
+            delta = val_llm - val_rule
+            sign = "+" if delta >= 0 else ""
+            if name == "Avg Turns/Dialogue":
+                print(f"{name:<30} {val_rule:>12.1f} {val_llm:>12.1f} {sign}{delta:>9.1f}")
+            else:
+                print(f"{name:<30} {val_rule:>11.2%} {val_llm:>11.2%} {sign}{delta:>9.2%}")
+
+        # Per-intent comparison
+        all_intents = sorted(
+            set(metrics_rule.per_intent_success.keys())
+            | set(metrics_llm.per_intent_success.keys())
+        )
+        if all_intents:
+            print(f"\n{'Per-Intent Task Success Comparison':^60}")
+            print("-" * 60)
+            for intent in all_intents:
+                vr = metrics_rule.per_intent_success.get(intent, 0)
+                vl = metrics_llm.per_intent_success.get(intent, 0)
+                d = vl - vr
+                sign = "+" if d >= 0 else ""
+                print(f"{intent:<25} {vr:>11.2%} {vl:>11.2%} {sign}{d:>9.2%}")
 
 
-def run_pipeline_evaluation(
-    num_template_dialogues: int = 5,
-    use_llm_dm: bool = False,
-    use_splitter: bool = False,
-    include_multi_intent: bool = True,
-    seed: int = 42
-):
-    """Run the complete pipeline evaluation."""
-    random.seed(seed)
-    
+# =============================================================================
+# HELPERS — serialise one set of results to a JSON file
+# =============================================================================
+
+def _save_results_json(
+    filepath: str,
+    metrics: PipelineMetrics,
+    dm_mode: str,
+    use_splitter: bool,
+    results: List[DialogueEvalResult],
+    num_dialogues: int,
+) -> None:
+    payload = {
+        "metrics": {
+            "task_success_rate": metrics.task_success_rate,
+            "dm_accuracy": metrics.dm_accuracy,
+            "dm_action_f1": metrics.dm_action_f1,
+            "slot_precision": metrics.slot_precision,
+            "slot_recall": metrics.slot_recall,
+            "slot_f1": metrics.slot_f1,
+            "avg_turns": metrics.avg_turns,
+            "per_intent_success": metrics.per_intent_success,
+            "per_intent_dm_accuracy": metrics.per_intent_dm_accuracy,
+            "splitter_detection_accuracy": metrics.splitter_detection_accuracy,
+            "splitter_split_accuracy": metrics.splitter_split_accuracy,
+            "multi_intent_success_rate": metrics.multi_intent_success_rate,
+        },
+        "config": {
+            "dm_mode": dm_mode,
+            "use_splitter": use_splitter,
+        },
+        "dialogues_evaluated": num_dialogues,
+        "detailed_results": [
+            {
+                "name": r.dialogue_name,
+                "intent": r.intent,
+                "method": r.generation_method,
+                "dm_mode": r.dm_mode,
+                "task_success": r.task_success,
+                "num_turns": r.num_turns,
+                "dm_accuracy": (
+                    r.dm_correct_actions / r.dm_total_actions
+                    if r.dm_total_actions > 0 else 0
+                ),
+                "is_multi_intent": r.is_multi_intent,
+                "splitter_detected_correctly": r.splitter_detected_correctly,
+                "splitter_split_correctly": r.splitter_split_correctly,
+                "expected_intents_count": r.expected_intents_count,
+                "detected_intents_count": r.detected_intents_count,
+                "errors": r.errors,
+            }
+            for r in results
+        ],
+    }
+    with open(filepath, "w") as f:
+        json.dump(payload, f, indent=2)
+
+
+# =============================================================================
+# MAIN ENTRY POINT
+# =============================================================================
+
+def run_pipeline_evaluation(use_splitter: bool = False):
+    """
+    Run the complete pipeline evaluation with BOTH DM modes
+    in a single run (shared NLU).  Produces two output files.
+    """
     print("Loading LLM...")
     pipe = make_llm()
     print("LLM loaded.\n")
-    
-    # Generate dialogues (template-based only)
-    print("Generating template-based dialogues...")
-    template_dialogues = generate_template_dialogues(num_template_dialogues)
-    print(f"Generated {len(template_dialogues)} template dialogues.\n")
-    
-    all_dialogues = template_dialogues
-    
-    # Generate multi-intent dialogues if enabled
-    if include_multi_intent:
-        print("Generating multi-intent dialogues...")
-        multi_intent_dialogues = generate_multi_intent_dialogues(num_dialogues=4)
-        print(f"Generated {len(multi_intent_dialogues)} multi-intent dialogues.\n")
-        all_dialogues = template_dialogues + multi_intent_dialogues
-    
-    # Evaluate
-    print(f"Evaluating {len(all_dialogues)} dialogues...")
-    print(f"Using {'LLM-based' if use_llm_dm else 'Rule-based'} DM")
-    print(f"Intent Splitter: {'Enabled' if use_splitter else 'Disabled'}\n")
-    
-    evaluator = PipelineEvaluator(pipe, use_llm_dm=use_llm_dm, use_splitter=use_splitter)
-    metrics = evaluator.evaluate_all(all_dialogues)
-    
-    # Print report
-    evaluator.print_report(metrics)
-    
-    # Save results
-    results_file = os.path.join(os.path.dirname(__file__), "pipeline_eval_results.json")
-    with open(results_file, "w") as f:
-        json.dump({
-            "metrics": {
-                "task_success_rate": metrics.task_success_rate,
-                "dm_accuracy": metrics.dm_accuracy,
-                "dm_action_f1": metrics.dm_action_f1,
-                "slot_precision": metrics.slot_precision,
-                "slot_recall": metrics.slot_recall,
-                "slot_f1": metrics.slot_f1,
-                "avg_turns": metrics.avg_turns,
-                "per_intent_success": metrics.per_intent_success,
-                "per_intent_dm_accuracy": metrics.per_intent_dm_accuracy,
-                # Splitter metrics
-                "splitter_detection_accuracy": metrics.splitter_detection_accuracy,
-                "splitter_split_accuracy": metrics.splitter_split_accuracy,
-                "multi_intent_success_rate": metrics.multi_intent_success_rate,
-            },
-            "config": {
-                "use_llm_dm": use_llm_dm,
-                "use_splitter": use_splitter,
-                "include_multi_intent": include_multi_intent,
-            },
-            "dialogues_evaluated": len(all_dialogues),
-            "detailed_results": [
-                {
-                    "name": r.dialogue_name,
-                    "intent": r.intent,
-                    "method": r.generation_method,
-                    "task_success": r.task_success,
-                    "num_turns": r.num_turns,
-                    "dm_accuracy": r.dm_correct_actions / r.dm_total_actions if r.dm_total_actions > 0 else 0,
-                    "is_multi_intent": r.is_multi_intent,
-                    "splitter_detected_correctly": r.splitter_detected_correctly,
-                    "splitter_split_correctly": r.splitter_split_correctly,
-                    "expected_intents_count": r.expected_intents_count,
-                    "detected_intents_count": r.detected_intents_count,
-                    "errors": r.errors,
-                }
-                for r in evaluator.results
-            ]
-        }, f, indent=2)
-    print(f"\nResults saved to: {results_file}")
-    
-    return metrics, evaluator
+
+    all_dialogues = get_static_dialogues()
+    print(f"Loaded {len(all_dialogues)} static dialogues.")
+    print(f"Intent Splitter: {'Enabled' if use_splitter else 'Disabled'}")
+    print("DM modes: Rule-based + LLM-based (dual evaluation)\n")
+
+    evaluator = DualPipelineEvaluator(pipe, use_splitter=use_splitter)
+    metrics_llm, metrics_rule = evaluator.evaluate_all(all_dialogues)
+
+    # Print comparative report to stdout
+    evaluator.print_comparative_report(metrics_llm, metrics_rule)
+
+    # Save results to two separate JSON files
+    base_dir = os.path.dirname(__file__)
+    splitter_tag = "splitter" if use_splitter else "no_splitter"
+
+    rule_file = os.path.join(base_dir, f"pipeline_eval_results_rule_dm_{splitter_tag}.json")
+    llm_file = os.path.join(base_dir, f"pipeline_eval_results_llm_dm_{splitter_tag}.json")
+
+    _save_results_json(
+        rule_file, metrics_rule, "rule", use_splitter,
+        evaluator.results_rule, len(all_dialogues),
+    )
+    _save_results_json(
+        llm_file, metrics_llm, "llm", use_splitter,
+        evaluator.results_llm, len(all_dialogues),
+    )
+
+    print(f"\nResults saved to:")
+    print(f"  Rule-based DM → {rule_file}")
+    print(f"  LLM-based DM  → {llm_file}")
+
+    return metrics_llm, metrics_rule, evaluator
 
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Pipeline Evaluation")
-    parser.add_argument("--template-dialogues", type=int, default=5, help="Number of template dialogues per intent")
-    parser.add_argument("--llm-dm", action="store_true", help="Use LLM-based DM instead of rule-based")
-    parser.add_argument("--use-splitter", action="store_true", help="Enable intent splitter for multi-intent handling")
-    parser.add_argument("--no-multi-intent", action="store_true", help="Disable multi-intent test dialogues")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    args = parser.parse_args()
-    
-    run_pipeline_evaluation(
-        num_template_dialogues=args.template_dialogues,
-        use_llm_dm=args.llm_dm,
-        use_splitter=args.use_splitter,
-        include_multi_intent=not args.no_multi_intent,
-        seed=args.seed
+    parser = argparse.ArgumentParser(description="Pipeline Evaluation (Dual DM)")
+    parser.add_argument(
+        "--use-splitter", action="store_true",
+        help="Enable intent splitter for multi-intent handling",
     )
+    args = parser.parse_args()
+
+    run_pipeline_evaluation(use_splitter=args.use_splitter)

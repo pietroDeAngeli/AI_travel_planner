@@ -18,7 +18,7 @@ _sys_base_prompt = (
     "Task: classify the user's intent and extract slot values.\n\n"
     f"Valid intents: {INTENTS}\n\n"
     f"Valid slots per intent: {INTENT_SLOTS}\n\n"
-    f"{RULES}\n\n"
+    f"RULES to follow when filling the values: {RULES}: \n\n"
     "Output MUST be a single JSON object with keys: intent, slots\n"
     "- Put null for unknown slots.\n"
     "- Never invent details.\n"
