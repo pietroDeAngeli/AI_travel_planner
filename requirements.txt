@@ -1,0 +1,9 @@
+flask>=3.0
+flask-cors
+python-dotenv
+torch
+numpy
+transformers
+accelerate
+python-dateutil
+requests
