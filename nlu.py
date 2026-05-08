@@ -10,6 +10,7 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 
 current_date = date.today().isoformat()
+DEFAULT_YEAR = 2026
 
 # ── Grounding helpers ──────────────────────────────────────────────
 
@@ -98,9 +99,9 @@ def _ground_date(value: Any) -> Optional[str]:
     # Already correct format
     if re.match(r"^\d{4}-\d{2}-\d{2}$", s):
         return s
-    # Use dateutil for flexible parsing
+    # Use dateutil for flexible parsing; default year = 2026 when omitted
     try:
-        dt = dateutil_parser.parse(s, dayfirst=True, fuzzy=True)
+        dt = dateutil_parser.parse(s, fuzzy=True, default=datetime(DEFAULT_YEAR, 1, 1))
         return dt.strftime("%Y-%m-%d")
     except (ValueError, OverflowError):
         pass
@@ -108,14 +109,14 @@ def _ground_date(value: Any) -> Optional[str]:
 
 
 def _ground_confirmation(value: Any) -> Any:
-    """Map confirmation to True/False if possible."""
+    """Normalise confirmation to 'yes'/'no' strings (what the DM expects)."""
     if isinstance(value, bool):
-        return value
+        return "yes" if value else "no"
     s = str(value).lower().strip()
     if re.match(r"^(yes|true|confirm|correct|ok|okay|sure|right|yep|yeah|affirmative)$", s):
-        return True
+        return "yes"
     if re.match(r"^(no|false|deny|incorrect|cancel|nope|nah|negative)$", s):
-        return False
+        return "no"
     return value   # ambiguous → let DM handle
 
 

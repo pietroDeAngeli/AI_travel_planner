@@ -18,7 +18,7 @@ _sys_base_prompt = (
     "Task: classify the user's intent and extract slot values.\n\n"
     f"Valid intents: {INTENTS}\n\n"
     f"Valid slots per intent: {INTENT_SLOTS}\n\n"
-    f"RULES to follow when filling the values: {RULES}: \n\n"
+    f"RULES to follow when filling the values:\n{RULES}\n"
     "Output MUST be a single JSON object with keys: intent, slots\n"
     "- Put null for unknown slots.\n"
     "- Never invent details.\n"
@@ -63,7 +63,7 @@ def _sys_slot_change_prompt(state: 'DialogueState') -> str:
         "\nOutput MUST be a single JSON object with keys: intent, slots\n"
         f"Example if user says 'the destination': {{\"intent\": \"{state.current_intent}\", \"slots\": {{\"slot_name\": \"destination\"}}}}\n"
         f"Example if user says 'budget': {{\"intent\": \"{state.current_intent}\", \"slots\": {{\"slot_name\": \"budget_level\"}}}}\n"
-        f"- Today is {_current_date}, keep it in mind so that you can correctly interpret temporal references.\n"
+
     )
 
 
@@ -194,21 +194,7 @@ def _allowed_slots_for_intent(intent: Optional[str]) -> List[str]:
     if not intent:
         return []
     schema = INTENT_SCHEMAS.get(intent, {}) if isinstance(INTENT_SCHEMAS, dict) else {}
-    required = schema.get("required_slots", [])
-    optional = schema.get("optional_slots", [])
-    out: List[str] = []
-    if isinstance(required, list):
-        out.extend(required)
-    if isinstance(optional, list):
-        out.extend(optional)
-    # de-dup preserve order
-    seen = set()
-    dedup = []
-    for s in out:
-        if s not in seen:
-            seen.add(s)
-            dedup.append(s)
-    return dedup
+    return list(schema.get("slots", []))
 
 
 def _extract_assistant_response(outputs: Any) -> str:
@@ -413,7 +399,6 @@ No extra text. No markdown. No code fences.
 
 def _build_dm_user_prompt(
     *,
-    state_before: Dict[str, Any],
     state_after: Dict[str, Any],
     state: DialogueState,
     nlu_output: Dict[str, Any],
@@ -435,35 +420,18 @@ def _build_dm_user_prompt(
 
     carryover_must_offer = bool(state.pending_carryover) and (not state.awaiting_carryover_response)
 
-    # helpful lists
-    filled_after = state_after.get("filled_slots", {}) or {}
-    filled_keys = list(filled_after.keys())
-
     schema_slots = _allowed_slots_for_intent(state_after.get("current_intent"))
-    allowed_missing_slots_now = list(missing_after)
-    compare_cities_slots = ["city1", "city2", "activity_category"]
-
-    # make carryover salient
     carryover_keys = list((state.pending_carryover or {}).keys())
 
-    return f"""STATE_BEFORE (previous turn, before applying NLU now):
-{json.dumps(state_before, ensure_ascii=False)}
-
-STATE_AFTER (after applying NLU now):
+    return f"""STATE (after applying NLU this turn):
 {json.dumps(state_after, ensure_ascii=False)}
 - first_missing_slot: {first_missing}
 
 GATING FLAGS (computed, must be respected):
+- last_action: {state.last_action}
 - can_request_slot_change: {can_request_slot_change}
 - carryover_must_offer: {carryover_must_offer}
-
-SALIENT CARRYOVER INFO:
-- pending_carryover_exists: {bool(state.pending_carryover)}
-- awaiting_carryover_response: {state.awaiting_carryover_response}
 - pending_carryover_keys: {json.dumps(carryover_keys, ensure_ascii=False)}
-
-INTERNAL FLAGS:
-- last_action: {state.last_action}
 - compare_cities_data: {json.dumps(state.compare_cities_data, ensure_ascii=False)}
 
 NLU OUTPUT (this turn):
@@ -474,9 +442,7 @@ USER UTTERANCE:
 {json.dumps(user_utterance, ensure_ascii=False)}
 
 HELPFUL LISTS:
-- allowed_missing_slots_now: {json.dumps(allowed_missing_slots_now, ensure_ascii=False)}
-- compare_cities_slots: {json.dumps(compare_cities_slots, ensure_ascii=False)}
-- filled_slot_keys_now: {json.dumps(filled_keys, ensure_ascii=False)}
+- compare_cities_slots: ["city1", "city2", "activity_category"]
 - schema_slots_for_intent: {json.dumps(schema_slots, ensure_ascii=False)}
 
 Return the action JSON now.
@@ -680,9 +646,6 @@ def dm_decide(
     if llm_pipe is None:
         return dm_decide_rule_based(state, nlu_output)
 
-    # BEFORE snapshot
-    state_before = state.to_summary()
-
     # AFTER snapshot (apply NLU on a copy so missing_slots are current)
     state_for_prompt = copy.deepcopy(state)
     intent = nlu_output.get("intent")
@@ -704,7 +667,6 @@ def dm_decide(
     # Build prompts
     system_prompt = _build_dm_system_prompt()
     user_prompt = _build_dm_user_prompt(
-        state_before=state_before,
         state_after=state_after,
         state=state,
         nlu_output=nlu_output,

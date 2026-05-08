@@ -176,10 +176,13 @@ Be helpful and list the options briefly.
 
 
 def _prompt_compare_cities(state: DialogueState) -> str:
-    # Note: This would need actual API data in production
-    return """
-Provide a helpful comparison between the two cities mentioned by the user.
-Focus on the activity category they're interested in.
+    data = state.compare_cities_data or {}
+    city1 = data.get("city1", "City 1")
+    city2 = data.get("city2", "City 2")
+    category = data.get("activity_category", "general")
+
+    return f"""
+Compare {city1} and {city2} for {category} activities.
 Be informative but concise (3-4 sentences).
 Offer to help with booking accommodation in those cities.
 """
