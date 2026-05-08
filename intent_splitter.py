@@ -110,7 +110,7 @@ def split_intents(pipe, user_input: str) -> Tuple[str, List[str]]:
     ]
 
     try:
-        out = pipe(messages, max_new_tokens=250)
+        out = pipe(messages, max_new_tokens=150)
         generated = out[0]["generated_text"]
 
         if isinstance(generated, list):

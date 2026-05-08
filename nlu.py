@@ -18,15 +18,14 @@ _BUDGET_SYNONYMS: Dict[str, str] = {
     # low
     "low": "low", "cheap": "low", "budget": "low", "economy": "low",
     "economic": "low", "inexpensive": "low", "affordable": "low",
-    "backpacker": "low", "thrifty": "low", "basso": "low", "economico": "low",
+    "backpacker": "low", "thrifty": "low",
     # medium
     "medium": "medium", "mid": "medium", "moderate": "medium",
     "standard": "medium", "average": "medium", "normal": "medium",
-    "regular": "medium", "medio": "medium",
     # high
     "high": "high", "luxury": "high", "expensive": "high", "premium": "high",
     "first class": "high", "first-class": "high", "vip": "high",
-    "deluxe": "high", "upscale": "high", "alto": "high", "lusso": "high",
+    "deluxe": "high", "upscale": "high",
 }
 
 # Number words → int  (covers 1-20 plus common words)
@@ -36,7 +35,6 @@ _NUM_WORDS: Dict[str, int] = {
     "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
     "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18,
     "nineteen": 19, "twenty": 20, "couple": 2, "pair": 2, "dozen": 12,
-    "uno": 1, "due": 2, "tre": 3, "quattro": 4, "cinque": 5,
 }
 
 # Build reverse index: keyword → canonical activity category
@@ -114,7 +112,7 @@ def _ground_confirmation(value: Any) -> Any:
     if isinstance(value, bool):
         return value
     s = str(value).lower().strip()
-    if re.match(r"^(yes|true|confirm|correct|ok|okay|sure|right|si|sì|yep|yeah|affirmative)$", s):
+    if re.match(r"^(yes|true|confirm|correct|ok|okay|sure|right|yep|yeah|affirmative)$", s):
         return True
     if re.match(r"^(no|false|deny|incorrect|cancel|nope|nah|negative)$", s):
         return False
@@ -150,7 +148,7 @@ def _ground_preferred_time(value: Any) -> Optional[str]:
         elif ampm == "am" and hour == 12:
             hour = 0
         return f"{hour:02d}:{minute:02d}"
-    return s  # keep raw if not parseable — still informative
+    return s  # keep raw if not parseable
 
 
 def _ground_slots(slots: Dict[str, Any]) -> Dict[str, Any]:

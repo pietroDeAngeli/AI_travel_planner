@@ -150,18 +150,6 @@ class DialogueState:
 
 # --- Shared helpers ---
 
-def _normalize_yes_no(value: Any) -> Optional[str]:
-    """Normalize confirmation values to 'yes', 'no', or None."""
-    if value is None:
-        return None
-    v = str(value).strip().lower()
-    if v in {"yes", "y", "si", "sì", "sure", "yeah", "okay", "ok", "true", "correct", "right", "confirm", "proceed"}:
-        return "yes"
-    if v in {"no", "n", "nope", "false", "wrong", "change", "modify", "different"}:
-        return "no"
-    return None
-
-
 def _get_complete_action(intent: str) -> str:
     """Get the completion action for an intent."""
     mapping = {
@@ -287,7 +275,7 @@ def dm_decide_rule_based(
 
     # 4) If we were waiting for confirmation
     if state.last_action == "ASK_CONFIRMATION":
-        conf = _normalize_yes_no(slots.get("confirmation"))
+        conf = slots.get("confirmation")
         if conf == "no":
             state.last_action = "REQUEST_SLOT_CHANGE"
             return state.last_action
@@ -301,7 +289,7 @@ def dm_decide_rule_based(
 
     # 5) Carryover offer response
     if state.last_action == "OFFER_SLOT_CARRYOVER":
-        conf = _normalize_yes_no(slots.get("confirmation"))
+        conf = slots.get("confirmation")
         if conf == "yes":
             if state.pending_carryover:
                 booking = state.get_current_booking()
@@ -438,7 +426,7 @@ def _build_dm_user_prompt(
     first_missing = missing_after[0] if missing_after else None
 
     # derived gating flags (computed, not guessed)
-    confirmation_from_nlu = _normalize_yes_no(slots.get("confirmation"))
+    confirmation_from_nlu = slots.get("confirmation")
     # request_slot_change allowed only if we're in that loop OR we just got a negative confirmation
     can_request_slot_change = (
         state.last_action == "REQUEST_SLOT_CHANGE"
@@ -582,9 +570,9 @@ def _apply_action_side_effects(
 
     # Carryover accept/decline when last_action was OFFER_SLOT_CARRYOVER
     if state.last_action == "OFFER_SLOT_CARRYOVER":
-        conf = _normalize_yes_no(slots.get("confirmation"))
+        conf = slots.get("confirmation")
         if conf is None:
-            conf = _normalize_yes_no(meta.get("inferred_confirmation"))
+            conf = meta.get("inferred_confirmation")
 
         if conf == "yes":
             if state.pending_carryover:
@@ -648,7 +636,7 @@ def _validate_and_correct_action(
             return "OFFER_SLOT_CARRYOVER"
 
     # Gate REQUEST_SLOT_CHANGE
-    conf = _normalize_yes_no(slots.get("confirmation"))
+    conf = slots.get("confirmation")
     can_request_slot_change = (
         state.last_action == "REQUEST_SLOT_CHANGE"
         or (state.last_action == "ASK_CONFIRMATION" and conf == "no")
@@ -732,7 +720,7 @@ def dm_decide(
     try:
         outputs = llm_pipe(
             messages,
-            max_new_tokens=120,
+            max_new_tokens=150,
             do_sample=False,
             temperature=0.0,
             pad_token_id=llm_pipe.tokenizer.pad_token_id,

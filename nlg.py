@@ -16,11 +16,6 @@ MIXED_INITIATIVE_OPTIONS = {
     # Common
     "destination": f"Popular destinations: {', '.join(POPULAR_DESTINATIONS)}",
     "budget_level": f"Available budget levels: {', '.join(BUDGET_LEVELS)}",
-    # Flight
-    "origin": f"Common departure cities: {', '.join(POPULAR_DESTINATIONS[:5])}",
-    "departure_date": "Tip: you can say things like 'next Friday', 'March 15th', or 'in two weeks'",
-    "return_date": "Tip: you can say 'one week later', a specific date, or 'one-way' if no return",
-    "num_passengers": "Usually 1-6 passengers for standard bookings",
     # Accommodation
     "check_in_date": "Tip: you can say a specific date like 'June 1st' or 'next Monday'",
     "check_out_date": "Tip: you can say a specific date or a duration like '3 nights'",
@@ -85,9 +80,8 @@ def nlg_generate(
         {
             "role": "system",
             "content": (
-                "You are a polite and helpful travel assistant. Be concise and friendly.\n"
-                "Instead of simply requesting information, try to proactively suggest options "
-                "to make the conversation more engaging and help the user decide faster."
+                "You are a polite and helpful travel assistant. Be CONCISE and friendly.\n"
+                "Instead of simply requesting information, try to proactively suggest options"
             )
         },
     ]
@@ -108,7 +102,7 @@ def nlg_generate(
     try:
         out = pipe(
             messages,
-            max_new_tokens=150,
+            #max_new_tokens=150,
             do_sample=False,
         )
     except Exception as e:
@@ -146,12 +140,12 @@ You are helping a user with their {intent_context}.
 Missing information needed: {slot}
 Description: {slot_description}{suggestions_block}
 
-Instead of simply asking for the missing information, PROACTIVELY SUGGEST some of the available options to help the user decide.
-Start with a progress marker ("Great!", "Perfect!", "Almost there!") then ask the question while mentioning a few suggestions.
-For example, instead of "Where would you like to go?" say "Where would you like to go? Some popular choices are Rome, Paris, and Barcelona!"
-Do NOT use phrases like "just to confirm" or "to clarify".
+Instead of simply asking for the missing information, SUGGEST one of the available options to help the user decide.
+Start with a progress marker ("Great!", "Perfect!", "Almost there!") then ask the question.
 Keep it to 1-2 short sentences.
 """
+# For example, instead of "Where would you like to go?" say "Where would you like to go? Some popular choices are Rome, Paris, and Barcelona!"
+
 
 
 def _prompt_offer_carryover(state: DialogueState) -> str:
@@ -164,8 +158,8 @@ The user is starting a new booking. You have information from their previous boo
 Values available to reuse: {values_str}
 
 Ask the user if they would like to use the same values for this booking.
-Be concise and natural. START with a positive marker like "Great!" or "Perfect!".
-Example: "Great! Would you like to use the same dates and number of guests from your flight booking?"
+Be concise and natural.
+Example: "Great! Would you like to use the information from the previous booking?"
 """
 
 
@@ -191,7 +185,7 @@ def _prompt_compare_cities(state: DialogueState) -> str:
 Provide a helpful comparison between the two cities mentioned by the user.
 Focus on the activity category they're interested in.
 Be informative but concise (3-4 sentences).
-Offer to help with booking activities in either city.
+Offer to help with booking accommodation in those cities.
 """
 
 
@@ -229,7 +223,7 @@ def _prompt_complete_flight(state: DialogueState) -> str:
 Confirm the flight booking with these details: {filled}
 
 START with an enthusiastic marker like "Excellent!" or "All set!" 
-Be brief (2-3 sentences max). Mention the key details and ask if they need anything else.
+Be brief. Mention the key details and ask if they need anything else.
 """
 
 
