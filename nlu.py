@@ -285,7 +285,7 @@ def nlu_parse(
     ]
 
     try:
-        out = pipe(messages, max_new_tokens=100)
+        out = pipe(messages)
     except Exception as e:
         logging.error(f"Error calling pipe: {e}")
         return {"intent": "OOD", "slots": {}}

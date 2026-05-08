@@ -100,11 +100,7 @@ def nlg_generate(
     })
 
     try:
-        out = pipe(
-            messages,
-            #max_new_tokens=150,
-            do_sample=False,
-        )
+        out = pipe(messages)
     except Exception as e:
         logging.error(f"Error calling pipe: {e}")
         return "I'm sorry, I'm having trouble generating a response right now."

@@ -718,13 +718,7 @@ def dm_decide(
 
     # Call LLM
     try:
-        outputs = llm_pipe(
-            messages,
-            max_new_tokens=150,
-            do_sample=False,
-            temperature=0.0,
-            pad_token_id=llm_pipe.tokenizer.pad_token_id,
-        )
+        outputs = llm_pipe(messages)
 
         assistant_response = _extract_assistant_response(outputs)
         action, meta = _parse_llm_action(assistant_response)

@@ -26,6 +26,14 @@ def make_llm():
           model_kwargs={"torch_dtype": dtype},
           device_map="auto",
           token=os.environ.get("HF_TOKEN"),
+
+          # generation params
+          max_new_tokens=150,
+          do_sample=True,
+          temperature=0.7,
+
+          # avoid warnings
+          clean_up_tokenization_spaces=False,
       )
     else:
       #Qwen model
