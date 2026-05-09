@@ -1,11 +1,3 @@
-"""Schemas and definitions for the travel assistant.
-
-Centralizes:
-- Intent/slot schemas used by NLU and validation
-- Activity categories and budget levels
-- Dialogue-manager action catalog + validation helpers
-"""
-
 # --- Intents / slots ---
 
 INTENT_SCHEMAS = {

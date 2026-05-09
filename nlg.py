@@ -8,8 +8,7 @@ logging.basicConfig(level=logging.DEBUG)
 # --- Mixed Initiative: proactive suggestions for each slot ---
 
 POPULAR_DESTINATIONS = [
-    "Rome", "Paris", "Barcelona", "London", "Amsterdam",
-    "Prague", "Lisbon", "Vienna", "Berlin", "Athens"
+    "Rome", "Paris", "Barcelona", "London"
 ]
 
 MIXED_INITIATIVE_OPTIONS = {
@@ -17,15 +16,15 @@ MIXED_INITIATIVE_OPTIONS = {
     "destination": f"Popular destinations: {', '.join(POPULAR_DESTINATIONS)}",
     "budget_level": f"Available budget levels: {', '.join(BUDGET_LEVELS)}",
     # Accommodation
-    "check_in_date": "Tip: you can say a specific date like 'June 1st' or 'next Monday'",
-    "check_out_date": "Tip: you can say a specific date or a duration like '3 nights'",
-    "num_guests": "Usually 1-4 guests per room",
+    "check_in_date": "You can suggest 'next Monday'",
+    "check_out_date": "You can specify 2 nights after the check-in date",
+    "num_guests": "who are you travelling with?",
     # Activity
     "activity_category": f"Available categories: {', '.join(list(ACTIVITY_CATEGORIES.keys()))}",
     "preferred_time": "Available times: morning, afternoon, evening, or a specific time like 10:00",
     # Compare cities
-    "city1": f"Popular cities to compare: {', '.join(POPULAR_DESTINATIONS[:6])}",
-    "city2": f"Popular cities to compare: {', '.join(POPULAR_DESTINATIONS[:6])}",
+    "city1": f"Popular cities to compare: {', '.join(POPULAR_DESTINATIONS)}",
+    "city2": f"Popular cities to compare: {', '.join(POPULAR_DESTINATIONS)}",
 }
 
 GREETING_MESSAGE = """Hello! I'm your travel assistant. I can help you with:
@@ -81,15 +80,13 @@ def nlg_generate(
             "role": "system",
             "content": (
                 "You are a polite and helpful travel assistant. Be CONCISE and friendly.\n"
-                "Instead of simply requesting information, try to proactively suggest options"
+                "Instead of simply requesting information, try to suggest a few options"
             )
         },
     ]
 
     # Inject the last turn from dialogue history for context-aware generation.
     # This allows the NLG to produce more natural responses such as
-    # "I apologize for the confusion, I've updated the destination to Rome"
-    # instead of a generic "Got it, I've updated the destination to Rome".
     if dialogue_history:
         for turn in dialogue_history[-2:]:
             messages.append({"role": turn["role"], "content": turn["content"]})
@@ -128,7 +125,7 @@ def _prompt_request_missing_slot(state: DialogueState, slot_name: str = None) ->
 
     # Mixed Initiative: get proactive suggestions for this slot
     suggestions = MIXED_INITIATIVE_OPTIONS.get(slot, "")
-    suggestions_block = f"\nProactive suggestions to offer: {suggestions}" if suggestions else ""
+    suggestions_block = f"\nSuggests: {suggestions}" if suggestions else ""
 
     return f"""
 You are helping a user with their {intent_context}.
@@ -137,11 +134,9 @@ Missing information needed: {slot}
 Description: {slot_description}{suggestions_block}
 
 Instead of simply asking for the missing information, SUGGEST one of the available options to help the user decide.
-Start with a progress marker ("Great!", "Perfect!", "Almost there!") then ask the question.
+Start with a progress marker ("Great!", "Perfect!") then ask the question.
 Keep it to 1-2 short sentences.
 """
-# For example, instead of "Where would you like to go?" say "Where would you like to go? Some popular choices are Rome, Paris, and Barcelona!"
-
 
 
 def _prompt_offer_carryover(state: DialogueState) -> str:
@@ -183,7 +178,7 @@ def _prompt_compare_cities(state: DialogueState) -> str:
 
     return f"""
 Compare {city1} and {city2} for {category} activities.
-Be informative but concise (3-4 sentences).
+Be concise (2 sentences).
 Offer to help with booking accommodation in those cities.
 """
 

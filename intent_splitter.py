@@ -1,14 +1,3 @@
-"""
-Intent Splitter Module
-
-Splits user input containing multiple intents into separate sentences.
-This handles over-informative users who provide multiple requests at once.
-
-Strategy: Process only one intent at a time (the first/most important one)
-and queue the rest for subsequent turns. Queued intents are only processed
-after the current booking flow is completed.
-"""
-
 import json
 import re
 import logging
@@ -36,14 +25,11 @@ Possible travel intents:
 RULES:
 1. If the input has only ONE intent, return it as-is in a single-element list.
 2. If the input has MULTIPLE intents, split into separate sentences.
-3. Each sentence MUST be self-contained: repeat shared details (city, dates, budget, number of people) in every sentence.
-4. Preserve ALL important details (dates, locations, numbers) in each relevant sentence.
-5. Ignore greetings or filler words when splitting.
-6. Two sentences about the SAME topic (e.g. "I want a hotel. Budget should be medium.") are ONE intent, not two.
-7. Only split when the sentences refer to DIFFERENT booking types (flight vs hotel vs activity vs compare).
+3. Ignore greetings or filler words when splitting.
+4. Two sentences about the SAME topic are ONE intent, not two.
+5. Only split when the sentences refer to DIFFERENT booking intents (flight vs hotel vs activity vs compare).
 
 OUTPUT FORMAT: Return ONLY a JSON array of strings.
-Example single intent: ["I want to book a flight to Rome on December 1st for 2 passengers"]
 Example multiple intents: ["I want to book a flight to Rome on December 1st for 2 passengers", "Find me a hotel in Rome for 2 guests checking in December 1st"]
 
 Only output the JSON array, no other text.
