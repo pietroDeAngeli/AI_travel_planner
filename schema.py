@@ -16,7 +16,7 @@ INTENT_SCHEMAS = {
         "examples": ["Find me a hotel in Rome", "I need a place to stay", "Book a hostel"]
     },
     "BOOK_ACTIVITY": {
-        "slots": ["destination", "activity_category", "budget_level", "preferred_time"],
+        "slots": ["destination", "activity_category", "budget_level", "preferred_date", "preferred_time"],
         "description": "User wants to book tours, experiences, or activities",
         "rule": "User mentions tours, activities, things to do, experiences",
         "examples": ["I want to go hiking", "Book a cooking class", "Find a museum tour"]
@@ -96,7 +96,7 @@ BUDGET_LEVELS = ["low", "medium", "high"]
 
 SLOT_DESCRIPTIONS = {
     # -------- Common --------
-    "destination": "The city or place the user wants to visit\n",
+    "destination": "ONE city the user wants to visit\n",
     "budget_level": f"Budget preference: {BUDGET_LEVELS}\n",
     
     # -------- BOOK_FLIGHT --------
@@ -112,6 +112,7 @@ SLOT_DESCRIPTIONS = {
     
     # -------- BOOK_ACTIVITY --------
     "activity_category": f"Type of activity: {list(ACTIVITY_CATEGORIES.keys())}\n",
+    "preferred_date": "Preferred date for the activity (format YYYY-MM-DD)\n",
     "preferred_time": "Preferred time for the activity (e.g., morning, afternoon, evening, or specific time like 10:00)\n",
     
     # -------- COMPARE_CITIES --------

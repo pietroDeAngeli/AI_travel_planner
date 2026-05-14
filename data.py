@@ -50,11 +50,12 @@ class AccommodationBooking(BaseBooking):
 @dataclass
 class ActivityBooking(BaseBooking):
     """Self-contained data for activity booking."""
-    _required_slots: ClassVar[List[str]] = ["destination", "activity_category", "budget_level", "preferred_time"]
+    _required_slots: ClassVar[List[str]] = ["destination", "activity_category", "budget_level", "preferred_date", "preferred_time"]
 
     destination: Optional[str] = None
     activity_category: Optional[str] = None
     budget_level: Optional[Literal["low", "medium", "high"]] = None
+    preferred_date: Optional[str] = None
     preferred_time: Optional[str] = None
 
 # --- Trip context ---
