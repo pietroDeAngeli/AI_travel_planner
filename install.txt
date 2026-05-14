@@ -1,4 +1,0 @@
-pip install python-dotenv torch numpy 
-pip install transformers accelerate
-pip install python-dateutil
-pip install flask
