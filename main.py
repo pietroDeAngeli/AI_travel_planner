@@ -1,4 +1,5 @@
 from llm import make_llm
+print("LLM imported successfully")
 from nlu import nlu_parse
 from dm import DialogueState, dm_decide, state_context
 from nlg import nlg_generate, GREETING_MESSAGE
@@ -9,6 +10,12 @@ import argparse
 
 import logging
 logging.basicConfig(level=logging.DEBUG)
+
+# Keep HTTP library logs quiet — they flood the debug output with Amadeus API calls
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("requests").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("amadeus").setLevel(logging.WARNING)
 
 class Color:
     RESET = "\033[0m"
@@ -70,8 +77,6 @@ def run(debug: bool = False, use_splitter: bool = True, use_llm_dm: bool = True)
             processing_queued = True
             if debug:
                 print(f"{Color.GREEN}[SPLIT] Auto-processing queued intent: {current_input}{Color.RESET}")
-            # Show user what we're processing
-            print(f"{Color.BLUE}BOT: Now let me help you with: \"{current_input}\"{Color.RESET}\n")
         else:
             user = input(f"{Color.YELLOW}YOU: {Color.RESET}").strip()
             if not user:
@@ -152,6 +157,12 @@ def run(debug: bool = False, use_splitter: bool = True, use_llm_dm: bool = True)
                         city=activity.destination,
                         activity_type=activity.activity_category or "cultural",
                     )
+                    # Keep only the top result and store its name in state
+                    if isinstance(api_results, list) and api_results:
+                        api_results = api_results[:1]
+                        booked_name = api_results[0].get("name") if isinstance(api_results[0], dict) else None
+                        if booked_name:
+                            state.context.activity.activity_category = booked_name
                 except Exception as e:
                     if debug:
                         print(f"{Color.RED}[API] Activity search failed: {e}{Color.RESET}")
@@ -168,11 +179,10 @@ def run(debug: bool = False, use_splitter: bool = True, use_llm_dm: bool = True)
         
         if api_results and base_action in ["COMPLETE_ACCOMMODATION_BOOKING", "COMPLETE_ACTIVITY_BOOKING"]:
             if isinstance(api_results, list) and len(api_results) > 0:
-                max_items = 1 if base_action == "COMPLETE_ACCOMMODATION_BOOKING" else 3
-                header = "Here is the top option I found:" if max_items == 1 else "Here are some options I found:"
+                header = "Here is the option I booked for you:"
 
                 results_summary = f"\n\n{header}\n"
-                for i, result in enumerate(api_results[:max_items], 1):
+                for i, result in enumerate(api_results[:1], 1):
                     if isinstance(result, dict):
                         name = result.get("name", "Option")
                         price = result.get("price", "N/A")

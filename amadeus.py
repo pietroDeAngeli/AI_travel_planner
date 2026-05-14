@@ -1,8 +1,11 @@
 import os
 import time
+import logging
 import requests
 from typing import Optional, Tuple, List, Dict, Any
 from datetime import date, timedelta, datetime
+
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -86,7 +89,7 @@ def search_activities(city: str, radius_km: int = 3, activity_type: str = "cultu
         token = get_access_token()
         lat, lon = geocode_city(city)
     except (RuntimeError, ValueError) as e:
-        print(f"[API] Setup failed: {e}")
+        logger.debug(f"[API] Setup failed: {e}")
         return []
 
     url = f"{BASE_URL}/v1/shopping/activities"
@@ -97,10 +100,10 @@ def search_activities(city: str, radius_km: int = 3, activity_type: str = "cultu
         response = requests.get(url, headers=headers, params=params, timeout=15)
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
-        print(f"[API] HTTP error: {e.response.status_code} - {e.response.text}")
+        logger.debug(f"[API] HTTP error: {e.response.status_code} - {e.response.text}")
         return []
     except requests.exceptions.RequestException as e:
-        print(f"[API] Request failed: {e}")
+        logger.debug(f"[API] Request failed: {e}")
         return []
 
     activities = parse_activities(response.json())
@@ -167,7 +170,7 @@ def search_accommodation(
         token = get_access_token()
         lat, lon = geocode_city(city)
     except (RuntimeError, ValueError) as e:
-        print(f"[API] Setup failed: {e}")
+        logger.debug(f"[API] Setup failed: {e}")
         return []
 
     headers = {"Authorization": f"Bearer {token}"}
@@ -185,10 +188,10 @@ def search_accommodation(
         response = requests.get(url, headers=headers, params=params, timeout=15)
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
-        print(f"[API] HTTP error (hotels list): {e.response.status_code}")
+        logger.debug(f"[API] HTTP error (hotels list): {e.response.status_code}")
         return []
     except requests.exceptions.RequestException as e:
-        print(f"[API] Request failed (hotels list): {e}")
+        logger.debug(f"[API] Request failed (hotels list): {e}")
         return []
 
     hotels = parse_hotels_list(response.json())
@@ -218,10 +221,10 @@ def search_accommodation(
         response = requests.get(url, headers=headers, params=params, timeout=15)
         response.raise_for_status()
     except requests.exceptions.HTTPError as e:
-        print(f"[API] HTTP error (hotel offers): {e.response.status_code}")
+        logger.debug(f"[API] HTTP error (hotel offers): {e.response.status_code}")
         return hotels  # Return basic hotel info if offers fail
     except requests.exceptions.RequestException as e:
-        print(f"[API] Request failed (hotel offers): {e}")
+        logger.debug(f"[API] Request failed (hotel offers): {e}")
         return hotels
 
     rooms = parse_hotels_search(response.json())
