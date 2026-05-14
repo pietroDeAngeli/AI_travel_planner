@@ -1,9 +1,12 @@
-﻿# AI Travel Planner — Task-Oriented Dialogue System
+﻿# AI Travel Planner 
 
 A modular, LLM-powered conversational system for travel planning, developed as part of the Human-Machine Dialogue course at the University of Trento. Users can book flights, accommodations, and activities through natural multi-turn conversation.
 
----
+![Demo](assets/AITravelPlanner-short_demo.gif)
 
+[Watch the full demo](https://youtu.be/QkZ0HowbgdY)
+
+---
 ## Architecture
 
 The system implements a four-stage NLU → DM → NLG pipeline:
@@ -24,7 +27,7 @@ The system implements a four-stage NLU → DM → NLG pipeline:
 |---|---|
 | `BOOK_FLIGHT` | `origin`, `destination`, `departure_date`, `num_passengers`, `budget_level` |
 | `BOOK_ACCOMMODATION` | `destination`, `check_in_date`, `check_out_date`, `num_guests`, `budget_level` |
-| `BOOK_ACTIVITY` | `destination`, `activity_category`, `preferred_time`, `budget_level` |
+| `BOOK_ACTIVITY` | `destination`, `activity_category`, `preferred_date`,`preferred_time`, `budget_level` |
 | `COMPARE_CITIES` | `city1`, `city2`, `activity_category` |
 | `END_DIALOGUE` | — |
 | `OOD` | — (triggers clarification) |
