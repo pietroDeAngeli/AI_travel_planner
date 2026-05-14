@@ -14,25 +14,60 @@ INTENT_DESCRIPTIONS = "\n".join([
     if intent not in ["OOD", "END_DIALOGUE"]
 ])
 
-SPLIT_PROMPT = f"""You are an intent splitter for a travel assistant.
+SPLIT_PROMPT = f"""You are an intent classifier and splitter for a travel booking assistant.
 
-Given a user input, determine if it contains multiple DISTINCT booking requests/intents.
-If it does, split it into separate sentences, each representing a single intent.
+Your ONLY job: decide whether a user message contains MORE THAN ONE distinct travel booking request. If yes, split it; if no, return it unchanged.
 
-Possible travel intents:
+The travel booking intents are:
 {INTENT_DESCRIPTIONS}
 
-RULES:
-1. If the input has only ONE intent, return it as-is in a single-element list.
-2. If the input has MULTIPLE intents, split into separate sentences.
-3. Ignore greetings or filler words when splitting.
-4. Two sentences about the SAME topic are ONE intent, not two.
-5. Only split when the sentences refer to DIFFERENT booking intents (flight vs hotel vs activity vs compare).
+═══ CRITICAL RULES ═══
 
-OUTPUT FORMAT: Return ONLY a JSON array of strings.
-Example multiple intents: ["I want to book a flight to Rome on December 1st for 2 passengers", "Find me a hotel in Rome for 2 guests checking in December 1st"]
+RULE 1 — DEFAULT IS NO SPLIT.
+When in doubt, return the full message as a single element.
+Only split when you are 100% certain the user is asking for two or more DIFFERENT booking types.
 
-Only output the JSON array, no other text.
+RULE 2 — WHAT COUNTS AS A SPLIT.
+Split ONLY when the user explicitly requests two or more DIFFERENT booking categories in the same message.
+Valid split triggers: flight + hotel, flight + activity, hotel + activity, flight + hotel + activity.
+
+RULE 3 — DO NOT SPLIT THESE CASES (very common mistakes to avoid):
+- A single booking with multiple details: "I want a hotel in Rome from June 1 to June 7 for 2 people" → ONE element.
+- A booking with a budget or preference: "Find me a cheap flight to Paris" → ONE element.
+- Greetings, filler words, or questions added to a single booking: "Hi! Can you book me a hotel in London?" → ONE element (the booking part).
+- A question or clarification about a single topic: "What hotels are available?" → ONE element.
+- Compound sentences about the SAME booking type: "I need flights and also want to upgrade my seat" → ONE element.
+- Adding details to an already-stated intent: "...and I'd prefer a window seat" → ONE element.
+
+RULE 4 — COPY VERBATIM. Do NOT rephrase, summarise, add, or infer anything.
+Each output string must be a literal substring or minimal paraphrase of the original input.
+Never invent city names, dates, numbers, or any other slot values.
+
+═══ EXAMPLES ═══
+
+Input: "Book a flight from Rome to Paris and also find me a hotel in Paris"
+Output: ["Book a flight from Rome to Paris", "find me a hotel in Paris"]
+
+Input: "I want to fly to Barcelona on June 5th and book a cooking class there"
+Output: ["I want to fly to Barcelona on June 5th", "book a cooking class there"]
+
+Input: "Find me a flight to New York, a hotel for 3 nights, and a city tour"
+Output: ["Find me a flight to New York", "a hotel for 3 nights", "a city tour"]
+
+Input: "I'd like to book a hotel in Rome from July 10 to July 17 for 2 guests"
+Output: ["I'd like to book a hotel in Rome from July 10 to July 17 for 2 guests"]
+
+Input: "Can you find me a cheap flight to London?"
+Output: ["Can you find me a cheap flight to London?"]
+
+Input: "Hi! I want to visit Paris next month"
+Output: ["I want to visit Paris next month"]
+
+Input: "Book me a hotel in Milan"
+Output: ["Book me a hotel in Milan"]
+
+═══ OUTPUT FORMAT ═══
+Return ONLY a JSON array of strings. No explanation, no markdown, no extra text.
 """
 
 def extract_json_array(text: str) -> Optional[List[str]]:
@@ -107,8 +142,13 @@ def split_intents(pipe, user_input: str) -> Tuple[str, List[str]]:
         sentences = extract_json_array(text)
 
         if sentences and len(sentences) >= 1:
-            current = sentences[0]
-            pending = sentences[1:]
+            # Collapse consecutive duplicates produced by the splitter
+            deduped = [sentences[0]]
+            for s in sentences[1:]:
+                if s.strip().lower() != deduped[-1].strip().lower():
+                    deduped.append(s)
+            current = deduped[0]
+            pending = deduped[1:]
             return current, pending
 
     except Exception as e:

@@ -21,6 +21,7 @@ MIXED_INITIATIVE_OPTIONS = {
     "num_guests": "who are you travelling with?",
     # Activity
     "activity_category": f"Available categories: {', '.join(list(ACTIVITY_CATEGORIES.keys()))}",
+    "preferred_date": "You can say 'tomorrow', 'next Friday', or a specific date like June 10",
     "preferred_time": "Available times: morning, afternoon, evening, or a specific time like 10:00",
     # Compare cities
     "city1": f"Popular cities to compare: {', '.join(POPULAR_DESTINATIONS)}",
@@ -123,19 +124,18 @@ def _prompt_request_missing_slot(state: DialogueState, slot_name: str = None) ->
         "COMPARE_CITIES": "city comparison",
     }.get(state.current_intent, "request")
 
-    # Mixed Initiative: get proactive suggestions for this slot
-    suggestions = MIXED_INITIATIVE_OPTIONS.get(slot, "")
-    suggestions_block = f"\nSuggests: {suggestions}" if suggestions else ""
+    # Mixed Initiative: get a neutral hint for this slot
+    hint = MIXED_INITIATIVE_OPTIONS.get(slot, "")
+    hint_block = f"\nHint for the user: {hint}" if hint else ""
 
     return f"""
 You are helping a user with their {intent_context}.
 
-Missing information needed: {slot}
-Description: {slot_description}{suggestions_block}
+Missing information: {slot} ({slot_description.strip()}){hint_block}
 
-Instead of simply asking for the missing information, SUGGEST one of the available options to help the user decide.
-Start with a progress marker ("Great!", "Perfect!") then ask the question.
-Keep it to 1-2 short sentences.
+Ask the user for this information. You may mention the hint as context to help them choose.
+Do NOT invent or assume a value — only ask.
+Start with a short acknowledgement ("Great!", "Got it!") then ask. 1-2 sentences.
 """
 
 
@@ -157,16 +157,18 @@ Example: "Great! Would you like to use the information from the previous booking
 def _prompt_request_slot_change(state: DialogueState) -> str:
     booking = state.get_current_booking()
     booking_data = booking.to_dict() if booking else {}
-    filled_slots = {k: v for k, v in booking_data.items() if v is not None}
-    
+    filled_slots = {k: v for k, v in booking_data.items() if v is not None and k != "completed"}
+
+    lines = "\n".join(f"  - {k}: {v}" for k, v in filled_slots.items())
+
     return f"""
 The user wants to change something in their booking.
 
-Current booking details:
-{filled_slots}
+Current booking:
+{lines}
 
-Ask which information they would like to change.
-Be helpful and list the options briefly.
+Ask which of the above values they would like to change. List only the field names with their current values.
+Be concise.
 """
 
 

@@ -9,6 +9,9 @@ from datetime import date
 from data import TripContext
 from schema import INTENTS, INTENT_SLOTS, RULES, DM_ACTIONS, INTENT_SCHEMAS, build_dm_actions_prompt
 
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
 _current_date = date.today().isoformat()
 
 # --- NLU prompt generation (state-aware) ---
@@ -16,12 +19,17 @@ _current_date = date.today().isoformat()
 _sys_base_prompt = (
     "You are an NLU module for a travel booking dialogue system.\n"
     "Task: classify the user's intent and extract slot values.\n\n"
+    "IMPORTANT — noise handling: the user's message may contain filler words, hesitations, "
+    "social niceties, off-topic remarks, or other text unrelated to travel booking. "
+    "Ignore all such irrelevant content and focus ONLY on the travel-related information.\n\n"
     f"Valid intents: {INTENTS}\n\n"
     f"Valid slots per intent: {INTENT_SLOTS}\n\n"
     f"RULES to follow when filling the values:\n{RULES}\n"
     "Output MUST be a single JSON object with keys: intent, slots\n"
-    "- Put null for unknown slots.\n"
-    "- Never invent details.\n"
+    "- A slot value MUST come verbatim from the user's words. If the user did not say it, set it to null.\n"
+    "- NEVER invent, guess, or use placeholder values such as 'unknown', 'user location', 'N/A', etc.\n"
+    "- For numeric slots (num_passengers, num_guests): COUNT the people mentioned and output the integer.\n"
+    "  Examples: 'me and my girlfriend' → 2, 'just me' → 1, 'family of 4' → 4, 'two adults' → 2.\n"
     "- Only include slots relevant to the detected intent.\n"
     f"- Today is {_current_date}, keep it in mind so that you can correctly interpret temporal references.\n"
 )
@@ -29,17 +37,24 @@ _sys_base_prompt = (
 
 def _sys_confirmation_prompt(state: 'DialogueState') -> str:
     """Generate confirmation prompt with state context."""
+    valid_slots = INTENT_SLOTS.get(state.current_intent, [])
     return (
         "You are an NLU module for a travel booking dialogue system.\n"
-        "The system just asked for confirmation.\n\n"
-        f"Current intent: {state.current_intent}\n\n"
-        "Task: Determine if the user's response is positive or negative.\n"
-        "- Positive: yes, yeah, sure, okay, correct, right, confirm, proceed\n"
-        "- Negative: no, nope, wrong, change, modify, different\n\n"
-        f"Return the current intent with a 'confirmation' slot.\n"
+        "The system just asked the user to confirm their booking details.\n\n"
+        "IMPORTANT — noise handling: ignore any filler words, hesitations, or off-topic remarks "
+        "and focus only on whether the user confirms or corrects the booking.\n\n"
+        f"Current intent: {state.current_intent}\n"
+        f"Valid slots: {valid_slots}\n\n"
+        "Task: extract TWO things from the user's reply:\n"
+        "1. confirmation: 'yes' if the user agrees, 'no' if they disagree or want changes.\n"
+        "   Positive words: yes, yeah, sure, okay, correct, right, confirm, proceed, looks good.\n"
+        "   Negative words: no, nope, wrong, change, modify, different, actually, wait.\n"
+        "2. Any slot corrections the user mentions inline (e.g. 'yes but make it 3 people').\n"
+        "   Only include slots the user explicitly corrects — do not repeat already-known values.\n\n"
         "Output MUST be a single JSON object with keys: intent, slots\n"
-        f"Example positive: {{\"intent\": \"{state.current_intent}\", \"slots\": {{\"confirmation\": \"yes\"}}}}\n"
-        f"Example negative: {{\"intent\": \"{state.current_intent}\", \"slots\": {{\"confirmation\": \"no\"}}}}\n"
+        f"Example (confirm only): {{\"intent\": \"{state.current_intent}\", \"slots\": {{\"confirmation\": \"yes\"}}}}\n"
+        f"Example (confirm + correction): {{\"intent\": \"{state.current_intent}\", \"slots\": {{\"confirmation\": \"yes\", \"num_guests\": 3}}}}\n"
+        f"Example (reject): {{\"intent\": \"{state.current_intent}\", \"slots\": {{\"confirmation\": \"no\"}}}}\n"
     )
 
 
@@ -48,6 +63,8 @@ def _sys_slot_change_prompt(state: 'DialogueState') -> str:
     return (
         "You are an NLU module for a travel booking dialogue system.\n"
         "The user is indicating which slot/field they want to change.\n\n"
+        "IMPORTANT — noise handling: ignore filler words or off-topic remarks and focus "
+        "only on which booking field the user mentions.\n\n"
         f"Current intent: {state.current_intent}\n"
         f"Valid slots: {INTENT_SLOTS.get(state.current_intent, [])}\n\n"
         "Task: Identify which slot name the user is referring to.\n"
@@ -163,6 +180,13 @@ def _get_complete_action(intent: str) -> str:
 def _update_state_with_nlu(state: DialogueState, nlu_output: Dict[str, Any]) -> None:
     """
     Update the dialogue state with parsed intent and slots from NLU.
+
+    Overwrite policy:
+    - If a slot is currently None  → always fill it.
+    - If a slot is already filled  → only overwrite when the DM explicitly
+      asked for that slot this turn (REQUEST_MISSING_SLOT(slot)).
+    This prevents NLU hallucinations from clobbering correct existing values
+    when the user is only answering a single targeted question.
     """
     intent = nlu_output.get("intent")
     slots = nlu_output.get("slots", {}) or {}
@@ -180,11 +204,28 @@ def _update_state_with_nlu(state: DialogueState, nlu_output: Dict[str, Any]) -> 
 
     state.current_intent = intent
 
+    # Determine which slot was explicitly requested this turn (if any).
+    # Only that slot is allowed to overwrite an already-filled value.
+    explicitly_requested: Optional[str] = None
+    if state.last_action:
+        m = re.match(r"REQUEST_MISSING_SLOT\((\w+)\)", state.last_action)
+        if m:
+            explicitly_requested = m.group(1)
+
     booking = state.get_current_booking()
     if booking and slots:
         for slot, value in slots.items():
-            if value is not None and hasattr(booking, slot):
+            if value is None or not hasattr(booking, slot):
+                continue
+            current_value = getattr(booking, slot)
+            # Allow write when the slot is empty OR was explicitly requested
+            if current_value is None or slot == explicitly_requested:
                 setattr(booking, slot, value)
+            else:
+                logging.debug(
+                    f"[DST] Slot '{slot}' already filled with '{current_value}' — "
+                    f"ignoring NLU value '{value}' (not explicitly requested)"
+                )
 
 
 def _allowed_slots_for_intent(intent: Optional[str]) -> List[str]:
