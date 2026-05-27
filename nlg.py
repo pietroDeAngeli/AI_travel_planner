@@ -1,6 +1,7 @@
 from schema import DM_ACTIONS, parse_action, SLOT_DESCRIPTIONS, BUDGET_LEVELS, ACTIVITY_CATEGORIES
 from dm import DialogueState
 from typing import Dict, List, Optional
+from datetime import date, timedelta
 
 import logging
 logging.basicConfig(level=logging.DEBUG)
@@ -81,7 +82,8 @@ def nlg_generate(
             "role": "system",
             "content": (
                 "You are a polite and helpful travel assistant. Be CONCISE and friendly.\n"
-                "Instead of simply requesting information, try to suggest a few options"
+                "When the prompt includes a proposed value, ask a short yes/no question using that value exactly.\n"
+                "Do not rewrite or invent date/time values."
             )
         },
     ]
@@ -108,6 +110,53 @@ def nlg_generate(
 
 # --- Prompt builders ---
 
+def _suggest_slot_value(state: DialogueState, slot: str) -> Optional[str]:
+    """Provide one concrete proposal for a slot when safe."""
+    if slot == "budget_level":
+        return "medium"
+    if slot in ("num_passengers", "num_guests"):
+        return "2"
+    if slot == "activity_category":
+        return "cultural"
+    if slot == "preferred_time":
+        return "10:00"
+    if slot == "preferred_date":
+        return (date.today() + timedelta(days=1)).isoformat()
+    if slot == "check_out_date":
+        check_in = state.context.accommodation.check_in_date
+        if check_in:
+            try:
+                d = date.fromisoformat(check_in)
+                return (d + timedelta(days=2)).isoformat()
+            except ValueError:
+                return None
+    if slot == "return_date":
+        departure = state.context.flight.departure_date
+        if departure:
+            try:
+                d = date.fromisoformat(departure)
+                return (d + timedelta(days=7)).isoformat()
+            except ValueError:
+                return None
+    return None
+
+
+def _suggest_slot_bundle(state: DialogueState, slot: str) -> Dict[str, str]:
+    """Optionally propose one or more slots together in one question."""
+    suggested = _suggest_slot_value(state, slot)
+    if suggested is None:
+        return {}
+
+    bundle = {slot: suggested}
+
+    # For activities, proposing date+time together improves mixed initiative.
+    if slot == "preferred_date" and state.context.activity.preferred_time is None:
+        bundle["preferred_time"] = _suggest_slot_value(state, "preferred_time") or "10:00"
+    elif slot == "preferred_time" and state.context.activity.preferred_date is None:
+        bundle["preferred_date"] = _suggest_slot_value(state, "preferred_date") or (date.today() + timedelta(days=1)).isoformat()
+
+    return bundle
+
 def _prompt_request_missing_slot(state: DialogueState, slot_name: str = None) -> str:
     if slot_name:
         slot = slot_name
@@ -124,7 +173,24 @@ def _prompt_request_missing_slot(state: DialogueState, slot_name: str = None) ->
         "COMPARE_CITIES": "city comparison",
     }.get(state.current_intent, "request")
 
-    # Mixed Initiative: get a neutral hint for this slot
+    # Mixed initiative: propose one or more concrete values when available
+    suggested_bundle = _suggest_slot_bundle(state, slot)
+    if suggested_bundle:
+        bundle_lines = "\n".join([f"- {k}: {v}" for k, v in suggested_bundle.items()])
+        return f"""
+You are helping a user with their {intent_context}.
+
+Missing information: {slot} ({slot_description.strip()})
+Proposed value(s):
+{bundle_lines}
+
+Ask one short YES/NO question that proposes exactly these value(s).
+Use the proposed value(s) verbatim.
+Do not add any extra values.
+Example style in English: "Sure, does this work: budget_level medium and preferred_time 10:00?"
+"""
+
+    # Fallback: neutral hint
     hint = MIXED_INITIATIVE_OPTIONS.get(slot, "")
     hint_block = f"\nHint for the user: {hint}" if hint else ""
 

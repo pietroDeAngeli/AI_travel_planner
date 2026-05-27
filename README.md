@@ -4,7 +4,7 @@ A modular, LLM-powered conversational system for travel planning, developed as p
 
 ![Demo](assets/AITravelPlanner-short_demo.gif)
 
-[Watch the full demo](https://youtu.be/QkZ0HowbgdY)
+[Watch the full demo](https://youtu.be/FQuBQqjFYmw)
 
 ---
 ## Architecture

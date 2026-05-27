@@ -263,12 +263,48 @@ def _ground_preferred_time(value: Any) -> Optional[str]:
     return s  # keep raw if not parseable
 
 
+def _split_date_range(value: str) -> Optional[tuple]:
+    """
+    Detect patterns like 'next monday to next friday' or 'June 1 - June 5'
+    and return (start_str, end_str). Returns None if not a range.
+    """
+    m = re.match(
+        r"^(.+?)\s+(?:to|through|until|\u2013|-|\u2014)\s+(.+)$",
+        value.strip(),
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).strip(), m.group(2).strip()
+    return None
+
+
+def _preprocess_date_ranges(slots: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    If a start-date slot contains a range string (e.g. 'next monday to next friday')
+    and the paired end-date slot is absent/None, split the value into the two slots.
+    """
+    result = dict(slots)
+    for start_slot, end_slot in (("departure_date", "return_date"), ("check_in_date", "check_out_date")):
+        val = result.get(start_slot)
+        if val and isinstance(val, str) and not result.get(end_slot):
+            pair = _split_date_range(val)
+            if pair:
+                logging.debug(
+                    f"[preprocess] splitting date range '{val}' → "
+                    f"{start_slot}='{pair[0]}', {end_slot}='{pair[1]}'"
+                )
+                result[start_slot] = pair[0]
+                result[end_slot] = pair[1]
+    return result
+
+
 def _ground_slots(slots: Dict[str, Any]) -> Dict[str, Any]:
     """
     Validate and normalise every slot value against schema constraints.
     Uses regex + synonym maps to fix values where possible.
     Sets to None only when the value is truly unrecoverable.
     """
+    slots = _preprocess_date_ranges(slots)
     grounded: Dict[str, Any] = {}
     for slot, value in slots.items():
         if value is None:
@@ -408,12 +444,14 @@ def nlu_parse(
     # Keep short context: last 2 turns (user + assistant) so the NLU
     # understands what was being asked before interpreting the new utterance.
     history_text = ""
+    last_assistant = _get_last_assistant(dialogue_history)
     if dialogue_history:
         for t in dialogue_history[-4:]:
             role = t.get("role", "").upper()
             history_text += f"{role}: {t['content']}\n"
 
     user = (
+        f"Last assistant message:\n{last_assistant}\n\n"
         f"Dialogue context:\n{history_text}\n"
         f"User utterance: {user_utterance}\n"
         "\nReturn JSON with keys: intent, slots."

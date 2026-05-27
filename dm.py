@@ -84,6 +84,44 @@ def _sys_slot_change_prompt(state: 'DialogueState') -> str:
     )
 
 
+def _sys_missing_slot_prompt(state: 'DialogueState') -> str:
+    """Generate NLU prompt when DM is requesting a specific missing slot."""
+    valid_slots = INTENT_SLOTS.get(state.current_intent, [])
+    requested_slot = None
+    if state.last_action:
+        m = re.match(r"REQUEST_MISSING_SLOT\((\w+)\)", state.last_action)
+        if m:
+            requested_slot = m.group(1)
+
+    return (
+        "You are an NLU module for a travel booking dialogue system.\n"
+        "The assistant just asked for one missing slot and may have proposed a concrete value.\n\n"
+        "IMPORTANT — noise handling: ignore filler words, politeness, and off-topic text.\n\n"
+        f"Current intent: {state.current_intent}\n"
+        f"Requested slot: {requested_slot}\n"
+        f"Valid slots: {valid_slots}\n\n"
+        "Task:\n"
+        "1. Extract the value for the requested slot if the user states it explicitly.\n"
+        "2. If the user gives a short confirmation (yes/ok/sure) and the LAST assistant message\n"
+        "   proposed one or more concrete slot values, copy those proposed values into slots.\n"
+        "3. If the user rejects (no/not that) and gives an alternative, extract the alternative.\n"
+        "4. If the user rejects without an alternative, keep proposed slots as null.\n"
+        "5. If the user also corrects other valid slots explicitly, include them.\n\n"
+        "Output MUST be a single JSON object with keys: intent, slots\n"
+        "English examples:\n"
+        "- Assistant: 'Sure, is medium budget okay?' User: 'yes'\n"
+        "  -> {\"intent\": \"BOOK_FLIGHT\", \"slots\": {\"budget_level\": \"medium\"}}\n"
+        "- Assistant: 'Would tomorrow at 10:00 work for your activity?' User: 'yes, perfect'\n"
+        "  -> {\"intent\": \"BOOK_ACTIVITY\", \"slots\": {\"preferred_date\": \"tomorrow\", \"preferred_time\": \"10:00\"}}\n"
+        "- Assistant: 'Is 2 guests okay?' User: 'no, make it 3'\n"
+        "  -> {\"intent\": \"BOOK_ACCOMMODATION\", \"slots\": {\"num_guests\": 3}}\n"
+        "- Assistant: 'When would you like to depart?' User: 'next monday to next friday'\n"
+        "  -> {\"intent\": \"BOOK_FLIGHT\", \"slots\": {\"departure_date\": \"next monday\", \"return_date\": \"next friday\"}}\n"
+        "- Assistant: 'What are your check-in dates?' User: 'June 3 to June 7'\n"
+        "  -> {\"intent\": \"BOOK_ACCOMMODATION\", \"slots\": {\"check_in_date\": \"June 3\", \"check_out_date\": \"June 7\"}}\n"
+    )
+
+
 def state_context(state: 'DialogueState') -> str:
     """Generate a context-aware NLU system prompt based on dialogue state."""
     if not state.last_action:
@@ -94,6 +132,9 @@ def state_context(state: 'DialogueState') -> str:
 
     if state.last_action == "REQUEST_SLOT_CHANGE":
         return _sys_slot_change_prompt(state)
+
+    if state.last_action.startswith("REQUEST_MISSING_SLOT("):
+        return _sys_missing_slot_prompt(state)
 
     return _sys_base_prompt
 
